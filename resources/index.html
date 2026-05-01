@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resources — Akarshan Arora</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #FAFAF7;
+      color: #1A1A1A;
+      line-height: 1.6;
+      padding: 4rem 2rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 2.5rem; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    p.subtitle { color: #6B6B66; font-size: 1.1rem; margin-bottom: 3rem; }
+    .resource {
+      padding: 2rem;
+      border: 1px solid #E5E5E0;
+      border-radius: 12px;
+      margin-bottom: 2rem;
+    }
+    .resource h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .resource p { color: #6B6B66; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; color: #1A1A1A; }
+    .form-group input { width: 100%; padding: 0.65rem 0.85rem; border: 1px solid #E5E5E0; border-radius: 8px; font-size: 0.95rem; font-family: inherit; background: #fff; transition: border-color 0.2s; }
+    .form-group input:focus { outline: none; border-color: #C45D2C; }
+    button {
+      padding: 0.75rem 1.75rem;
+      background: #C45D2C;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #a84c1f; }
+    .error { color: #9A3324; font-size: 0.82rem; margin-top: 0.3rem; display: none; }
+    .success { display: none; margin-top: 1rem; }
+    .success a { color: #C45D2C; font-weight: 600; }
+    footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid #E5E5E0; color: #A3A39E; }
+    footer a { color: #6B6B66; }
+  </style>
+</head>
+<body>
+  <h1>Resources</h1>
+  <p class="subtitle">Free PDFs and guides for VLSI engineers. Enter your details to download.</p>
+
+  <div class="resource">
+    <h2>EMIR Cheatsheet</h2>
+    <p>A quick-reference guide covering IR drop, electromigration, and power integrity fundamentals.</p>
+
+    <form class="download-form" data-resource="emir-cheatsheet">
+      <div class="form-group">
+        <label for="name-emir">Name</label>
+        <input type="text" id="name-emir" name="name" required placeholder="Your full name" />
+        <div class="error" data-error="name">Please enter your name.</div>
+      </div>
+      <div class="form-group">
+        <label for="email-emir">Email</label>
+        <input type="email" id="email-emir" name="email" required placeholder="you@example.com" />
+        <div class="error" data-error="email">Please enter a valid email.</div>
+      </div>
+      <div class="form-group">
+        <label for="phone-emir">Phone (optional)</label>
+        <input type="tel" id="phone-emir" name="phone" placeholder="+91 99999 99999" />
+      </div>
+      <button type="submit">Download PDF</button>
+      <div class="success"><a href="emir-cheatsheet.pdf" download>Click here if download doesn't start →</a></div>
+    </form>
+  </div>
+
+  <footer>
+    <a href="/">← courses.akarshanarora.com</a>
+  </footer>
+
+  <script>
+    document.querySelectorAll('.download-form').forEach(form => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const resource = form.dataset.resource;
+        const name = form.querySelector('[name="name"]').value.trim();
+        const email = form.querySelector('[name="email"]').value.trim();
+        const phone = form.querySelector('[name="phone"]').value.trim();
+        const errors = form.querySelectorAll('.error');
+        const success = form.querySelector('.success');
+
+        errors.forEach(el => el.style.display = 'none');
+
+        // Validate
+        let valid = true;
+        if (!name) { form.querySelector('[data-error="name"]').style.display = 'block'; valid = false; }
+        if (!email || !email.includes('@')) { form.querySelector('[data-error="email"]').style.display = 'block'; valid = false; }
+        if (!valid) return;
+
+        // Send to API
+        try {
+          await fetch('/api/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, phone, resource }),
+          });
+        } catch (_) {
+          // Download even if API fails
+        }
+
+        // Trigger download
+        const link = document.createElement('a');
+        link.href = resource + '.pdf';
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        success.style.display = 'block';
+        form.querySelector('button').textContent = 'Downloaded ✓';
+        form.querySelector('button').disabled = true;
+      });
+    });
+  </script>
+</body>
+</html>

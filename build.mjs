@@ -38,4 +38,9 @@ for (const course of COURSES) {
 
 // Copy landing page
 await cp('index.html', join(DIST, 'index.html'));
+
+// Copy resources (static pages + PDFs)
+await cp('resources', join(DIST, 'resources'), { recursive: true });
+console.log('Copied resources → dist/resources');
+
 console.log('\n=== All courses built ===');
