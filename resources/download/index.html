@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Download — Akarshan Arora</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #fff;
+      color: #1A1A1A;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100dvh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .container { max-width: 440px; width: 100%; }
+    .back { color: #888; text-decoration: none; font-size: 0.85rem; display: inline-block; margin-bottom: 2rem; }
+    .back:hover { color: #1A1A1A; }
+    h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 0.35rem; }
+    .subtitle { color: #777; font-size: 0.92rem; margin-bottom: 2rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; font-weight: 600; color: #555; margin-bottom: 0.3rem; }
+    .field input {
+      width: 100%; padding: 0.75rem 0.9rem;
+      background: #fafafa; border: 1px solid #e5e5e5; border-radius: 8px;
+      color: #1A1A1A; font-size: 0.92rem; font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .field input:focus { outline: none; border-color: #C45D2C; background: #fff; }
+    .field input::placeholder { color: #bbb; }
+    .error { color: #9A3324; font-size: 0.75rem; margin-top: 0.2rem; display: none; }
+    .btn {
+      width: 100%; padding: 0.8rem; margin-top: 0.5rem;
+      background: #C45D2C; color: #fff; border: none; border-radius: 8px;
+      font-size: 0.92rem; font-weight: 600; font-family: inherit; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #a84c1f; }
+    .btn.done { background: #3A5A40; pointer-events: none; }
+    .dl-link { display: none; text-align: center; margin-top: 1rem; font-size: 0.88rem; }
+    .dl-link a { color: #C45D2C; text-decoration: none; font-weight: 600; }
+    .dl-link a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/resources/" class="back">← Back to resources</a>
+    <h1 id="resource-title">Download</h1>
+    <p class="subtitle">Enter your details to get the PDF. No spam, ever.</p>
+    <form id="download-form" data-resource="">
+      <div class="field">
+        <label>Name</label>
+        <input type="text" name="name" required placeholder="Your full name" />
+        <div class="error">Please enter your name.</div>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" name="email" required placeholder="you@example.com" />
+        <div class="error">Please enter a valid email address.</div>
+      </div>
+      <div class="field">
+        <label>Phone — optional</label>
+        <input type="tel" name="phone" placeholder="+91 99999 99999" />
+      </div>
+      <button type="submit" class="btn">Download PDF</button>
+      <div class="dl-link">Download started. <a href="#" id="fallback-link">Click here if it doesn't →</a></div>
+    </form>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const resource = params.get('r') || '';
+    const form = document.getElementById('download-form');
+    const title = document.getElementById('resource-title');
+    form.dataset.resource = resource;
+
+    const titles = {
+      'emir-fundamentals': 'EMIR Fundamentals',
+      'pdn-quick-reference': 'PDN Quick Reference',
+    };
+    title.textContent = titles[resource] || 'Download';
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = form.querySelector('[name="name"]').value.trim();
+      const email = form.querySelector('[name="email"]').value.trim();
+      const phone = form.querySelector('[name="phone"]').value.trim();
+      const btn = form.querySelector('.btn');
+      const dl = form.querySelector('.dl-link');
+      form.querySelectorAll('.error').forEach(el => el.style.display = 'none');
+
+      let valid = true;
+      if (!name) { form.querySelector('[name="name"]').parentElement.querySelector('.error').style.display = 'block'; valid = false; }
+      if (!email || !email.includes('@')) { form.querySelector('[name="email"]').parentElement.querySelector('.error').style.display = 'block'; valid = false; }
+      if (!valid) return;
+
+      btn.textContent = 'Downloading...';
+      btn.style.opacity = '0.7';
+
+      try {
+        await fetch('/api/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, phone, resource }),
+        });
+      } catch (_) {}
+
+      const link = document.createElement('a');
+      link.href = '/' + resource + '.pdf';
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      btn.textContent = 'Downloaded ✓';
+      btn.classList.add('done');
+      btn.style.opacity = '1';
+      dl.style.display = 'block';
+      document.getElementById('fallback-link').href = '/' + resource + '.pdf';
+    });
+  </script>
+</body>
+</html>
