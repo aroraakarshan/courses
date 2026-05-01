@@ -609,7 +609,7 @@ async function notifyAdmin(env, type, data) {
             phone: '',
             date: data.date,
             time: data.time,
-          }, `https://meet.jit.si/akarshan-session`)),
+          }, `https://meet.google.com/axa-gbem-pgj`)),
           content_type: 'text/calendar; charset=utf-8; method=REQUEST',
         }],
       } : {}),
