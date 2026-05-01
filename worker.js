@@ -455,9 +455,8 @@ function parseDateTime(date, timeSlot) {
   const isPM = timeSlot.includes('PM') && hour !== 12;
   const isAM = timeSlot.includes('AM') && hour === 12;
   const h = isPM ? hour + 12 : isAM ? 0 : hour;
-  const d = new Date(date + 'T00:00:00+05:30');
-  d.setHours(h, 0, 0, 0);
-  return d;
+  const dt = Temporal.PlainDateTime.from(`${date}T${String(h).padStart(2, '0')}:00:00`);
+  return new Date(dt.toZonedDateTime('Asia/Kolkata', { disambiguation: 'earlier' }).epochMilliseconds);
 }
 
 function safeJsonParse(str) {
