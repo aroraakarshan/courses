@@ -1,20 +1,25 @@
 ---
+import resources from '../../data/resources.json';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 
-const titles = {
-  'emir-fundamentals': 'EMIR Fundamentals',
-  'pdn-quick-reference': 'PDN Quick Reference',
-};
+const titles = Object.fromEntries(resources.map(r => [r.file, r.title]));
 ---
 
 <BaseLayout title="Download">
+  <nav>
+    <a href="https://akarshanarora.com" class="nav-brand">Akarshan Arora</a>
+    <div class="nav-links">
+      <a href="https://akarshanarora.com">Who am I</a>
+      <a href="https://www.linkedin.com/in/aroraakarshan/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
+    </div>
+  </nav>
+
   <style>
     .container {
       max-width: 440px; width: 100%; margin: 0 auto;
       padding: 4rem 1rem;
     }
-    .back { color: #888; text-decoration: none; font-size: 0.85rem; display: inline-block; margin-bottom: 2rem; }
-    .back:hover { color: #1A1A1A; }
     h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 0.35rem; }
     .subtitle { color: #777; font-size: 0.92rem; margin-bottom: 2rem; }
     .field { margin-bottom: 1rem; }
@@ -42,7 +47,7 @@ const titles = {
   </style>
 
   <div class="container">
-    <a href="/resources/" class="back">&larr; Back to resources</a>
+    <a href="/resources/" class="back-link">&larr; Resources</a>
     <h1 id="resource-title">Download</h1>
     <p class="subtitle">Enter your details to get the PDF.</p>
     <form id="download-form">
@@ -61,12 +66,12 @@ const titles = {
         <input type="tel" name="phone" placeholder="+91 99999 99999" />
       </div>
       <button type="submit" class="btn">Download PDF</button>
-      <div class="dl-link">Download started. <a href="#" id="fallback-link">Click here if it doesn't &rarr;</a></div>
     </form>
   </div>
 
+  <span id="titles-data" hidden data-titles={JSON.stringify(titles)}></span>
   <script>
-    const titles = { "emir-fundamentals": "EMIR Fundamentals", "pdn-quick-reference": "PDN Quick Reference" };
+    const titles = JSON.parse(document.getElementById('titles-data').dataset.titles);
     const params = new URLSearchParams(window.location.search);
     const resource = params.get('r') || '';
     document.getElementById('resource-title').textContent = titles[resource] || 'Download';
@@ -91,24 +96,30 @@ const titles = {
       btn.style.opacity = '0.7';
 
       try {
-        await fetch('/api/download', {
+        const res = await fetch('/api/download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, phone, resource }),
         });
-      } catch (_) {}
 
-      const link = document.createElement('a');
-      link.href = '/' + resource + '.pdf';
-      link.download = '';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      btn.textContent = 'Downloaded ✓';
-      btn.classList.add('done'); btn.style.opacity = '1';
-      dl.style.display = 'block';
-      document.getElementById('fallback-link').href = '/' + resource + '.pdf';
+        if (res.ok) {
+          const blob = await res.blob();
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = resource;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(link.href);
+          window.location.href = '/resources/thank-you/';
+        } else {
+          btn.textContent = 'Download failed';
+          btn.style.opacity = '1';
+        }
+      } catch (_) {
+        btn.textContent = 'Download failed';
+        btn.style.opacity = '1';
+      }
     });
   </script>
 </BaseLayout>

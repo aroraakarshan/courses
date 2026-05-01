@@ -1,18 +1,6 @@
 ---
+import resources from '../../data/resources.json';
 import BaseLayout from '../../layouts/BaseLayout.astro';
-
-const resources = [
-  {
-    id: 'emir-fundamentals',
-    title: 'EMIR Fundamentals',
-    description: 'IR drop, electromigration, power grid analysis — a quick-reference covering core concepts used daily in physical design.',
-  },
-  {
-    id: 'pdn-quick-reference',
-    title: 'PDN Quick Reference',
-    description: 'Power delivery network design checklist, decoupling strategies, and target impedance formulas at a glance.',
-  },
-];
 ---
 
 <BaseLayout title="Resources">
@@ -24,6 +12,10 @@ const resources = [
       <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
     </div>
   </nav>
+
+  <div style="max-width:1000px;margin:0 auto;padding:2rem 2rem 0;">
+    <a href="/" class="back-link">&larr; Courses</a>
+  </div>
 
   <section class="hero">
     <div class="hero-eyebrow">Downloads</div>
@@ -39,7 +31,7 @@ const resources = [
           <p>{r.description}</p>
         </div>
         <div class="card-footer">
-          <a href={`/resources/download/?r=${r.id}`} style="color:inherit;text-decoration:none;"><span>Download →</span></a>
+          <a href={`/resources/download/?r=${r.file}`} style="color:inherit;text-decoration:none;"><span>Download →</span></a>
         </div>
       </div>
     ))}

@@ -1,0 +1,12 @@
+[
+  {
+    "file": "mastering-yaml-for-semiconductor.pdf",
+    "title": "Mastering YAML for Semiconductor Engineers",
+    "description": "Essential YAML patterns for VLSI workflows — configuration files, tool setups, and automation scripts with real examples."
+  },
+  {
+    "file": "demystifyingfileformatsinvlsibackendanalysis.pdf",
+    "title": "Demystifying File Formats in VLSI Backend Analysis",
+    "description": "A practical guide to the file formats you encounter in EMIR, PDN, and physical design — LEF, DEF, SPEF, DSPF, and more."
+  }
+]

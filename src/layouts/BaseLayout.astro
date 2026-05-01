@@ -8,6 +8,7 @@ const { title } = Astro.props;
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title} — Akarshan Arora</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style is:global>
@@ -44,10 +45,10 @@ const { title } = Astro.props;
     .nav-links a:hover { color: var(--ink); }
     .nav-cta {
       padding: 0.45rem 1rem;
-      background: var(--accent); color: #fff; border-radius: 7px;
+      background: var(--accent); color: #fff !important; border-radius: 7px;
       font-weight: 600; font-size: 0.8rem; transition: background 0.2s;
     }
-    .nav-cta:hover { background: #a84c1f; }
+    .nav-cta:hover { background: #a84c1f; color: #fff !important; }
 
     /* Shared card styles */
     .card {
@@ -73,6 +74,10 @@ const { title } = Astro.props;
       font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.14em;
       color: var(--accent); margin-bottom: 0.65rem;
     }
+
+    /* Back link */
+    .back-link { color: var(--tertiary); text-decoration: none; font-size: 0.85rem; display: inline-block; margin-bottom: 2rem; }
+    .back-link:hover { color: var(--ink); }
 
     /* Hero */
     .hero { padding: 5rem 2rem 3rem; text-align: center; max-width: 660px; margin: 0 auto; }
