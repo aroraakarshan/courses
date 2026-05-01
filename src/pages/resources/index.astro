@@ -1,0 +1,61 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const resources = [
+  {
+    id: 'emir-fundamentals',
+    title: 'EMIR Fundamentals',
+    description: 'IR drop, electromigration, power grid analysis — a quick-reference covering core concepts used daily in physical design.',
+  },
+  {
+    id: 'pdn-quick-reference',
+    title: 'PDN Quick Reference',
+    description: 'Power delivery network design checklist, decoupling strategies, and target impedance formulas at a glance.',
+  },
+];
+---
+
+<BaseLayout title="Resources">
+  <nav>
+    <a href="https://akarshanarora.com" class="nav-brand">Akarshan Arora</a>
+    <div class="nav-links">
+      <a href="https://akarshanarora.com">Who am I</a>
+      <a href="https://www.linkedin.com/in/aroraakarshan/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-eyebrow">Downloads</div>
+    <h1>Cheatsheets &amp; guides for VLSI engineers.</h1>
+    <p>Practical references built from real project experience.</p>
+  </section>
+
+  <div class="grid">
+    {resources.map((r) => (
+      <div class="card">
+        <div class="card-body">
+          <h2>{r.title}</h2>
+          <p>{r.description}</p>
+        </div>
+        <div class="card-footer">
+          <a href={`/resources/download/?r=${r.id}`} style="color:inherit;text-decoration:none;"><span>Download →</span></a>
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <section class="support">
+    <h3>Support this work</h3>
+    <p>Creating resources takes time. If you find them valuable, consider contributing.</p>
+    <form><script src="https://checkout.razorpay.com/v1/payment-button.js" data-payment_button_id="pl_Sk52NHQhnivoGx" async></script></form>
+  </section>
+
+  <footer>
+    <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;·&nbsp; <a href="/">Courses</a> &nbsp;·&nbsp; <a href="/resources/">Resources</a>
+  </footer>
+</BaseLayout>
+
+<style>
+  .card-body { padding-bottom: 0 !important; }
+</style>

@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "git submodule update --init --recursive && node build.mjs"
+    "dev": "astro dev",
+    "build": "git submodule update --init --recursive && node build.mjs && astro build",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^5.0.0"
   }
 }

@@ -1,0 +1,50 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Courses">
+  <nav>
+    <a href="https://akarshanarora.com" class="nav-brand">Akarshan Arora</a>
+    <div class="nav-links">
+      <a href="https://akarshanarora.com">Who am I</a>
+      <a href="https://www.linkedin.com/in/aroraakarshan/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-eyebrow">Learn by doing</div>
+    <h1>Free tutorials that make complex concepts click.</h1>
+    <p>Interactive, visual, and built from real industry experience. No sign-up. No paywall.</p>
+  </section>
+
+  <div class="grid">
+    <a href="/yaml-from-zero/" class="card">
+      <div class="card-body">
+        <div class="card-tag">Tutorial</div>
+        <h2>YAML from Zero</h2>
+        <p>Learn YAML from absolute basics to advanced features — live examples, built-in playground, and quizzes to test your understanding.</p>
+      </div>
+      <div class="card-footer"><span>Start Learning →</span></div>
+    </a>
+
+    <a href="/resources/" class="card">
+      <div class="card-body">
+        <div class="card-tag">Downloads</div>
+        <h2>Resources &amp; Cheatsheets</h2>
+        <p>Quick-reference guides for VLSI engineers — EMIR fundamentals, PDN checklists, and more. Downloadable PDFs for your second screen.</p>
+      </div>
+      <div class="card-footer"><span>Browse Resources →</span></div>
+    </a>
+  </div>
+
+  <section class="support">
+    <h3>Support this work</h3>
+    <p>Creating resources takes time. If you find them valuable, consider contributing.</p>
+    <form><script src="https://checkout.razorpay.com/v1/payment-button.js" data-payment_button_id="pl_Sk52NHQhnivoGx" async></script></form>
+  </section>
+
+  <footer>
+    <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;·&nbsp; <a href="/">Courses</a> &nbsp;·&nbsp; <a href="/resources/">Resources</a>
+  </footer>
+</BaseLayout>
