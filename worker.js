@@ -163,9 +163,6 @@ export default {
           ).bind(orderId).first();
 
           if (booking) {
-            if (env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-              try { meetLink = await createGoogleMeet(booking, env); } catch (e) { console.log('Meet failed:', e.message); }
-            }
 
             await env.DB.prepare(
               "UPDATE contacts SET status = ?, payment_id = ?, meet_link = ? WHERE order_id = ? AND status = 'pending'"
@@ -243,6 +240,36 @@ export default {
               });
             }
           }
+        }
+
+        // Free booking (100% off) — bypass Razorpay
+        if (actualPrice === 0) {
+          const orderId = `free-${service}-${Date.now()}`;
+          let meetLink = 'https://meet.google.com/axa-gbem-pgj';
+
+          if (env.DB) {
+            const booking = { order_id: orderId, service, service_name: serviceName, price: 0, date, time, name, email, phone: phone || '', answers_json: answersJson || '', coupon_code: couponCode || '' };
+
+
+            await env.DB.prepare(
+              `INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at, meet_link, payment_id)
+               VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'courses', 'confirmed', ?, ?, 'free')`
+            ).bind(orderId, service, serviceName, date, time, name, email, phone || '', answersJson || '', couponCode || '', Date.now(), meetLink).run();
+
+            if (env.RESEND_API_KEY) {
+              await sendConfirmationEmail(booking, meetLink, env);
+              const answers = safeJsonParse(answersJson);
+              await notifyAdmin(env, 'booking', {
+                service_name: serviceName, name, email, date, time, price: 0,
+                coupon_code: couponCode || '', order_id: orderId, payment_id: 'free',
+                about: answers.about || '', experience: answers.experience || '', company: answers.company || '',
+              });
+            }
+          }
+
+          return new Response(JSON.stringify({ free: true, orderId, meetLink }), {
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
 
         // Create Razorpay order
@@ -417,98 +444,6 @@ function hexToBytes(hex) {
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
-}
-
-async function createGoogleMeet(booking, env) {
-  const key = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_KEY);
-  const token = await getGoogleAccessToken(key);
-
-  const startTime = parseDateTime(booking.date, booking.time);
-  const endTime = new Date(startTime.getTime() + 55 * 60000);
-
-  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      summary: `1:1 — ${booking.service_name} with ${booking.name}`,
-      description: `Session: ${booking.service_name}\nName: ${booking.name}\nEmail: ${booking.email}\nPhone: ${booking.phone || 'N/A'}`,
-      start: { dateTime: startTime.toISOString(), timeZone: 'Asia/Kolkata' },
-      end: { dateTime: endTime.toISOString(), timeZone: 'Asia/Kolkata' },
-      conferenceData: {
-        createRequest: { requestId: `booking-${booking.order_id}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
-      },
-    }),
-  });
-
-  const event = await res.json();
-  return event.conferenceData?.entryPoints?.[0]?.uri || '';
-}
-
-async function getGoogleAccessToken(key) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: key.client_email,
-    scope: 'https://www.googleapis.com/auth/calendar',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now,
-  };
-
-  const jwt = await signJWT(header, claim, key.private_key);
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
-  });
-
-  const data = await res.json();
-  return data.access_token;
-}
-
-async function signJWT(header, payload, privateKey) {
-  const encoder = new TextEncoder();
-  const headerB64 = b64url(JSON.stringify(header));
-  const payloadB64 = b64url(JSON.stringify(payload));
-  const toSign = `${headerB64}.${payloadB64}`;
-
-  const key = await crypto.subtle.importKey(
-    'pkcs8',
-    pemToArrayBuffer(privateKey),
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    encoder.encode(toSign)
-  );
-
-  return `${toSign}.${b64urlRaw(signature)}`;
-}
-
-function b64url(str) {
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function b64urlRaw(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function pemToArrayBuffer(pem) {
-  const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
 }
 
 function parseDateTime(date, timeSlot) {

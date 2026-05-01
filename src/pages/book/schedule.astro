@@ -361,9 +361,13 @@ while (dates.length < 5) {
     btn.textContent = 'Processing...'; btn.disabled = true;
     try {
       const r = await fetch('/api/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service, serviceName: name, price: discountedPrice, originalPrice, date: selDate, time: selTime, name: n, email: e, phone: ph, answersJson: answers, couponCode: appliedCoupon }) });
-      const { orderId, error } = await r.json();
-      if (error) throw new Error(error);
-      new Razorpay({ key: 'rzp_test_SkCAElXSARTppL', amount: discountedPrice * 100, currency: 'INR', name, description: selDate + ' at ' + selTime, order_id: orderId, handler: (response) => { location.href = '/book/confirmed/?orderId=' + orderId + '&paymentId=' + response.razorpay_payment_id + '&signature=' + response.razorpay_signature; }, prefill: { name: n, email: e, contact: ph }, theme: { color: '#C45D2C' } }).open();
+      const data = await r.json();
+      if (data.error) throw new Error(data.error);
+      if (data.free) {
+        location.href = '/book/confirmed/?orderId=' + data.orderId;
+        return;
+      }
+      new Razorpay({ key: 'rzp_test_SkCAElXSARTppL', amount: discountedPrice * 100, currency: 'INR', name, description: selDate + ' at ' + selTime, order_id: data.orderId, handler: (response) => { location.href = '/book/confirmed/?orderId=' + data.orderId + '&paymentId=' + response.razorpay_payment_id + '&signature=' + response.razorpay_signature; }, prefill: { name: n, email: e, contact: ph }, theme: { color: '#C45D2C' } }).open();
     } catch (_) { alert('Something went wrong. Try again.'); }
     updatePriceDisplay(); btn.disabled = false;
   };

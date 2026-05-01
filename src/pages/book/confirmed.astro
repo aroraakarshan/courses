@@ -39,6 +39,15 @@
       const m = document.getElementById('msg');
       const back = document.getElementById('back-link');
 
+      // Free bookings (100% off coupon) — already confirmed server-side
+      if (orderId && orderId.startsWith('free-')) {
+        document.querySelector('.spinner').outerHTML = '<div style="font-size:3rem;margin-bottom:1rem;">&#x2705;</div>';
+        h.textContent = 'Booking Confirmed';
+        m.textContent = 'You\'ll receive a confirmation email with the meeting link and calendar invite shortly.';
+        back.style.display = 'inline-block';
+        return;
+      }
+
       if (!orderId || !paymentId || !signature) {
         h.textContent = 'Invalid request';
         m.textContent = 'Missing payment details. If you paid, contact us.';
