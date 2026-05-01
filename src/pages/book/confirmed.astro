@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Booking Confirmed — Akarshan Arora</title>
+  <style>
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #fff;
+      color: #1A1A1A;
+      text-align: center;
+      padding: 6rem 2rem;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; }
+    p { color: #6B6B66; margin: 1rem 0 2rem; }
+    a { color: #C45D2C; font-weight: 600; }
+    .spinner { display: inline-block; width: 36px; height: 36px; border: 3px solid #e5e5e0; border-top-color: #C45D2C; border-radius: 50%; animation: spin 0.6s linear infinite; margin-bottom: 1rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="content">
+    <div class="spinner"></div>
+    <h1 id="heading">Verifying payment...</h1>
+    <p id="msg">Give us a moment.</p>
+  </div>
+  <a href="/" style="display:none;" id="back-link">Back to Courses</a>
+
+  <script>
+    (async () => {
+      const p = new URLSearchParams(location.search);
+      const orderId = p.get('orderId');
+      const paymentId = p.get('paymentId');
+      const signature = p.get('signature');
+      const h = document.getElementById('heading');
+      const m = document.getElementById('msg');
+      const back = document.getElementById('back-link');
+
+      if (!orderId || !paymentId || !signature) {
+        h.textContent = 'Invalid request';
+        m.textContent = 'Missing payment details. If you paid, contact us.';
+        back.style.display = 'inline-block';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/verify-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, paymentId, signature }),
+        });
+        const data = await res.json();
+
+        if (data.verified) {
+          document.querySelector('.spinner').outerHTML = '<div style="font-size:3rem;margin-bottom:1rem;">&#x2705;</div>';
+          h.textContent = 'Booking Confirmed';
+          m.textContent = 'You\'ll receive a confirmation email with the meeting link and calendar invite shortly.';
+        } else {
+          document.querySelector('.spinner').outerHTML = '<div style="font-size:3rem;margin-bottom:1rem;">&#x274C;</div>';
+          h.textContent = 'Payment Verification Failed';
+          m.textContent = data.error || 'Something went wrong. If your card was charged, contact us.';
+        }
+      } catch (_) {
+        h.textContent = 'Something went wrong';
+        m.textContent = 'Server error. If your card was charged, contact us.';
+      }
+
+      back.style.display = 'inline-block';
+    })();
+  </script>
+</body>
+</html>

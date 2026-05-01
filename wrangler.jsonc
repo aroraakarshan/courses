@@ -15,5 +15,11 @@
 			"database_name": "courses-db",
 			"database_id": "561918e4-574c-4d7a-8816-c21e7016b033"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "RESOURCES",
+			"bucket_name": "resources"
+		}
 	]
 }

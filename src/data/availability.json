@@ -1,0 +1,10 @@
+{
+  "timezone": "Asia/Kolkata",
+  "slotDuration": 55,
+  "bufferMinutes": 5,
+  "meetLink": "https://meet.google.com/axa-gbem-pgj",
+  "schedule": {
+    "0": [["12:00", "17:00"]],
+    "6": [["12:00", "17:00"]]
+  }
+}

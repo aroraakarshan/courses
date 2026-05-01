@@ -14,14 +14,14 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
   <section class="hero">
     <div class="hero-eyebrow">Learn by doing</div>
-    <h1>Free tutorials that make complex concepts click.</h1>
+    <h1>Tutorials that make complex concepts click.</h1>
     <p>Interactive, visual, and built from real industry experience. No sign-up. No paywall.</p>
   </section>
 
   <div class="grid">
     <a href="/yaml-from-zero/" class="card">
       <div class="card-body">
-        <div class="card-tag">Tutorial</div>
+        <div class="card-tag">Tutorial &middot; Free</div>
         <h2>YAML from Zero</h2>
         <p>Learn YAML from absolute basics to advanced features — live examples, built-in playground, and quizzes to test your understanding.</p>
       </div>
@@ -31,10 +31,19 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     <a href="/resources/" class="card">
       <div class="card-body">
         <div class="card-tag">Downloads</div>
-        <h2>Resources &amp; Cheatsheets</h2>
+        <h2>Guides</h2>
         <p>Quick-reference guides for VLSI engineers — EMIR fundamentals, PDN checklists, and more. Downloadable PDFs for your second screen.</p>
       </div>
-      <div class="card-footer"><span>Browse Resources →</span></div>
+      <div class="card-footer"><span>Browse Guides →</span></div>
+    </a>
+
+    <a href="/book/" class="card">
+      <div class="card-body">
+        <div class="card-tag">1-on-1</div>
+        <h2>Book a Session</h2>
+        <p>Get personalised guidance on Python for VLSI, PDN, Redhawk SeaScape, or your career path. 55-minute live sessions.</p>
+      </div>
+      <div class="card-footer"><span>Book Now →</span></div>
     </a>
   </div>
 
@@ -45,6 +54,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   </section>
 
   <footer>
-    <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;·&nbsp; <a href="/">Courses</a> &nbsp;·&nbsp; <a href="/resources/">Resources</a>
+    <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;·&nbsp; <a href="/">Courses</a> &nbsp;·&nbsp; <a href="/resources/">Guides</a>
   </footer>
 </BaseLayout>

@@ -1,0 +1,65 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Book a Session">
+  <nav>
+    <a href="https://akarshanarora.com" class="nav-brand">Akarshan Arora</a>
+    <div class="nav-links">
+      <a href="https://akarshanarora.com">Who am I</a>
+      <a href="https://www.linkedin.com/in/aroraakarshan/" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
+    </div>
+  </nav>
+
+  <div style="max-width:1000px;margin:0 auto;padding:2rem 2rem 0;">
+    <a href="/" class="back-link">&larr; Courses</a>
+  </div>
+
+  <section class="hero">
+    <div class="hero-eyebrow">1-on-1 Sessions</div>
+    <h1>Pick a topic.</h1>
+  </section>
+
+  <div class="grid">
+    <a href="/book/schedule/?s=python-vlsi&n=Python+for+VLSI&p=799&d=55" class="card">
+      <div class="card-body">
+        <div class="card-tag">55 min &middot; &#8377;799</div>
+        <h2>Python for VLSI</h2>
+        <p>Interview prep, CLI tools, automation, data visualization for VLSI workflows.</p>
+      </div>
+      <div class="card-footer"><span>Select &rarr;</span></div>
+    </a>
+
+    <a href="/book/schedule/?s=pdn-guidance&n=VLSI+PDN+Guidance&p=999&d=55" class="card">
+      <div class="card-body">
+        <div class="card-tag">55 min &middot; &#8377;999</div>
+        <h2>VLSI PDN Guidance</h2>
+        <p>Power delivery, EMIR analysis, tool flows. Job-ready PDN skills and mentorship.</p>
+      </div>
+      <div class="card-footer"><span>Select &rarr;</span></div>
+    </a>
+
+    <a href="/book/schedule/?s=redhawk-seascape&n=Redhawk+SeaScape&p=1499&d=55" class="card">
+      <div class="card-body">
+        <div class="card-tag">55 min &middot; &#8377;1,499</div>
+        <h2>Redhawk SeaScape</h2>
+        <p>SeaScape platform deep-dive for VLSI power integrity analysis and debugging.</p>
+      </div>
+      <div class="card-footer"><span>Select &rarr;</span></div>
+    </a>
+
+    <a href="/book/schedule/?s=career-guidance&n=Career+Guidance&p=599&d=55" class="card">
+      <div class="card-body">
+        <div class="card-tag">55 min &middot; &#8377;599</div>
+        <h2>Career Guidance</h2>
+        <p>Navigating career paths in VLSI, CAD, and the semiconductor industry.</p>
+      </div>
+      <div class="card-footer"><span>Select &rarr;</span></div>
+    </a>
+  </div>
+
+  <footer>
+    <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;&middot;&nbsp; <a href="/">Courses</a> &nbsp;&middot;&nbsp; <a href="/resources/">Guides</a>
+  </footer>
+</BaseLayout>
