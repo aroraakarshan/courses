@@ -179,26 +179,49 @@ while (dates.length < 5) {
 
   // URL params
   const p = new URLSearchParams(location.search);
-  const service = p.get('s'), name = p.get('n'), price = parseInt(p.get('p')||'0');
+  const service = p.get('s'), name = p.get('n');
   const dur = parseInt(p.get('d')) || defaultDur;
   const interval = dur + buffer;
-  if(!service||!name||!price) return location.href='/book/';
+  if(!service||!name) return location.href='/book/';
 
-  let originalPrice = price;
-  let discountedPrice = price;
+  let originalPrice = 0;
+  let discountedPrice = 0;
   let appliedCoupon = null;
+  let priceLoaded = false;
+
+  // Fetch real price from server — URL param is fallback only
+  async function loadServicePrice() {
+    try {
+      const r = await fetch('/api/service?slug=' + encodeURIComponent(service));
+      if (r.ok) {
+        const svc = await r.json();
+        originalPrice = svc.price;
+        discountedPrice = svc.price;
+        priceLoaded = true;
+        updatePriceDisplay();
+      }
+    } catch (_) {}
+    // Fallback to URL param
+    if (!priceLoaded) {
+      originalPrice = parseInt(p.get('p')||'0');
+      discountedPrice = originalPrice;
+      if (originalPrice) { priceLoaded = true; updatePriceDisplay(); }
+    }
+  }
 
   function updatePriceDisplay() {
     document.getElementById('service-title').textContent = name;
     document.getElementById('service-meta').textContent = dur + ' min';
     const btn = document.getElementById('pay-btn');
-    if (discountedPrice < originalPrice) {
+    if (!priceLoaded) {
+      btn.textContent = 'Loading...';
+    } else if (discountedPrice < originalPrice) {
       btn.innerHTML = '₹' + discountedPrice + ' <s style="opacity:0.6; font-weight:400;">₹' + originalPrice + '</s>';
     } else {
       btn.textContent = '₹' + discountedPrice;
     }
   }
-  updatePriceDisplay();
+  loadServicePrice().then(updatePriceDisplay);
 
   // Coupon
   let couponValidating = false;
@@ -214,7 +237,7 @@ while (dates.length < 5) {
       const r = await fetch('/api/validate-coupon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, service, price })
+        body: JSON.stringify({ code, service, price: originalPrice })
       });
       const data = await r.json();
       if (data.valid) {

@@ -12,6 +12,12 @@ export default {
           });
         }
 
+        if (resource.includes('..') || resource.includes('/') || resource.includes('\\')) {
+          return new Response(JSON.stringify({ error: 'invalid resource' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
         if (env.DB) {
           await env.DB.prepare(
             'INSERT INTO contacts (name, email, phone, resource, source, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -22,7 +28,6 @@ export default {
           await notifyAdmin(env, 'download', { name, email, phone: phone || '', resource });
         }
 
-        // Try R2 first, fall back to static assets
         let pdfBody, pdfHeaders;
         if (env.RESOURCES) {
           const obj = await env.RESOURCES.get(resource);
@@ -34,26 +39,40 @@ export default {
           }
         }
         if (!pdfBody) {
-          const pdfResponse = await env.ASSETS.fetch(
-            new Request(new URL(`/resources/${resource}`, request.url))
-          );
-          if (pdfResponse.status !== 200) {
-            return new Response(JSON.stringify({ error: 'file not found' }), {
-              status: 404, headers: { 'Content-Type': 'application/json' },
-            });
-          }
-          pdfBody = pdfResponse.body;
-          pdfHeaders = new Headers(pdfResponse.headers);
+          return new Response(JSON.stringify({ error: 'file not found' }), {
+            status: 404, headers: { 'Content-Type': 'application/json' },
+          });
         }
 
         pdfHeaders.set('Content-Disposition', `attachment; filename="${resource}"`);
         return new Response(pdfBody, { status: 200, headers: pdfHeaders });
 
       } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 400, headers: { 'Content-Type': 'application/json' },
+        return new Response(JSON.stringify({ error: 'Internal error' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // ─── API: Get service details ───
+    if (url.pathname === '/api/service' && request.method === 'GET') {
+      const slug = url.searchParams.get('slug');
+      if (!slug || !env.DB) {
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const svc = await env.DB.prepare(
+        'SELECT slug, name, price FROM services WHERE slug = ? AND active = 1'
+      ).bind(slug).first();
+      if (!svc) {
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+          status: 404, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify(svc), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     // ─── API: Validate coupon ───
@@ -66,16 +85,25 @@ export default {
           });
         }
 
+        // Fetch real price from D1 so client can't fake it
+        let actualPrice = price;
+        if (env.DB && service) {
+          const svc = await env.DB.prepare(
+            'SELECT price FROM services WHERE slug = ? AND active = 1'
+          ).bind(service).first();
+          if (svc) actualPrice = svc.price;
+        }
+
         if (env.DB) {
           const coupon = await env.DB.prepare(
             "SELECT * FROM coupons WHERE code = ? AND active = 1 AND (max_uses = 0 OR used < max_uses) AND (service = '' OR service = ?)"
           ).bind(code.toUpperCase().trim(), service || '').first();
 
           if (coupon) {
-            const discounted = Math.round(price * (100 - coupon.discount_percent) / 100);
+            const discounted = Math.round(actualPrice * (100 - coupon.discount_percent) / 100);
             return new Response(JSON.stringify({
               valid: true,
-              originalPrice: price,
+              originalPrice: actualPrice,
               discountedPrice: discounted,
               discountPercent: coupon.discount_percent,
             }), { headers: { 'Content-Type': 'application/json' } });
@@ -86,8 +114,8 @@ export default {
           headers: { 'Content-Type': 'application/json' },
         });
       } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 400, headers: { 'Content-Type': 'application/json' },
+        return new Response(JSON.stringify({ error: 'Internal error' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' },
         });
       }
     }
@@ -171,10 +199,24 @@ export default {
     if (url.pathname === '/api/create-order' && request.method === 'POST') {
       try {
         const { service, serviceName, price, originalPrice, date, time, name, email, phone, couponCode, answersJson } = await request.json();
-        if (!service || !price || !date || !time || !name || !email) {
+        if (!service || !date || !time || !name || !email) {
           return new Response(JSON.stringify({ error: 'required fields missing' }), {
             status: 400, headers: { 'Content-Type': 'application/json' },
           });
+        }
+
+        // Fetch real price from D1 — client price is display-only, never trusted
+        let actualPrice = price;
+        if (env.DB) {
+          const svc = await env.DB.prepare(
+            'SELECT price FROM services WHERE slug = ? AND active = 1'
+          ).bind(service).first();
+          if (!svc) {
+            return new Response(JSON.stringify({ error: 'invalid service' }), {
+              status: 400, headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          actualPrice = svc.price;
         }
 
         // Validate coupon if provided and increment usage
@@ -184,13 +226,15 @@ export default {
           ).bind(couponCode.toUpperCase().trim(), service).first();
 
           if (coupon) {
-            const expectedDiscounted = Math.round((originalPrice || price) * (100 - coupon.discount_percent) / 100);
-            if (price !== expectedDiscounted) {
-              return new Response(JSON.stringify({ error: 'Price mismatch with coupon' }), {
+            actualPrice = Math.round(actualPrice * (100 - coupon.discount_percent) / 100);
+            const result = await env.DB.prepare(
+              "UPDATE coupons SET used = used + 1 WHERE id = ? AND active = 1 AND (max_uses = 0 OR used < max_uses)"
+            ).bind(coupon.id).run();
+            if (result.meta.changes === 0) {
+              return new Response(JSON.stringify({ error: 'Coupon no longer available' }), {
                 status: 400, headers: { 'Content-Type': 'application/json' },
               });
             }
-            await env.DB.prepare('UPDATE coupons SET used = used + 1 WHERE id = ?').bind(coupon.id).run();
           }
         }
 
@@ -203,7 +247,7 @@ export default {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            amount: price * 100,
+            amount: actualPrice * 100,
             currency: 'INR',
             receipt: `${service}-${Date.now()}`,
             notes: { service, serviceName, date, time, name, email, phone, couponCode: couponCode || '' },
@@ -222,7 +266,7 @@ export default {
           await env.DB.prepare(
             `INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-          ).bind(order.id, service, serviceName, price, date, time, name, email, phone || '', answersJson || '', couponCode || '', 'courses', Date.now()).run();
+          ).bind(order.id, service, serviceName, actualPrice, date, time, name, email, phone || '', answersJson || '', couponCode || '', 'courses', Date.now()).run();
         }
 
         return new Response(JSON.stringify({ orderId: order.id }), {
@@ -230,8 +274,8 @@ export default {
         });
 
       } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 400, headers: { 'Content-Type': 'application/json' },
+        return new Response(JSON.stringify({ error: 'Internal error' }), {
+          status: 500, headers: { 'Content-Type': 'application/json' },
         });
       }
     }
@@ -347,10 +391,7 @@ export default {
 // ─── Helpers ───
 
 async function verifyRazorpaySignature(body, signature, secret) {
-  // Only skip when both are missing (local dev with no config).
-  // In prod, secret MUST be set — otherwise reject.
-  if (!signature && !secret) return true;
-  if (!secret) return false;
+  if (!secret || !signature) return false;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
@@ -477,6 +518,10 @@ function safeJsonParse(str) {
   try { return JSON.parse(str || '{}'); } catch { return {}; }
 }
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function generateICS(booking, meetLink) {
   const start = parseDateTime(booking.date, booking.time);
   const end = new Date(start.getTime() + 55 * 60000);
@@ -505,21 +550,29 @@ function emailShell(content) {
 }
 
 async function sendConfirmationEmail(booking, meetLink, env) {
+  const svc = escapeHtml(booking.service_name);
+  const nm = escapeHtml(booking.name);
+  const em = escapeHtml(booking.email);
+  const ph = escapeHtml(booking.phone || 'N/A');
+  const dt = escapeHtml(booking.date);
+  const tm = escapeHtml(booking.time);
+  const ml = escapeHtml(meetLink);
+
   const html = emailShell(`
     <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
       <div style="font-size:32px;margin-bottom:12px">&#x1F44B;</div>
       <h2 style="font-weight:800;font-size:22px;margin:0 0 4px">Booking Confirmed</h2>
-      <p style="color:#6b6b66;margin:0 0 24px;font-size:15px">${booking.service_name}</p>
+      <p style="color:#6b6b66;margin:0 0 24px;font-size:15px">${svc}</p>
 
       <div style="background:#fdf8f5;border:1px solid #f0d6c2;border-radius:10px;padding:20px;margin-bottom:24px">
-        <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#1a1a1a">${booking.date} at ${booking.time} IST</p>
+        <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#1a1a1a">${dt} at ${tm} IST</p>
         <table style="width:100%;border-collapse:collapse">
           <tr><td style="padding:6px 0;color:#6b6b66;font-size:14px;width:80px">Duration</td><td style="padding:6px 0;font-size:14px;font-weight:600">55 minutes</td></tr>
-          ${meetLink ? `<tr><td style="padding:6px 0;color:#6b6b66;font-size:14px">Meet link</td><td style="padding:6px 0;font-size:14px"><a href="${meetLink}" style="color:#C45D2C;font-weight:600;text-decoration:none">Join Call &rarr;</a></td></tr>` : ''}
+          ${meetLink ? `<tr><td style="padding:6px 0;color:#6b6b66;font-size:14px">Meet link</td><td style="padding:6px 0;font-size:14px"><a href="${ml}" style="color:#C45D2C;font-weight:600;text-decoration:none">Join Call &rarr;</a></td></tr>` : ''}
         </table>
       </div>
 
-      <p style="font-size:14px;color:#6b6b66;margin:0 0 20px">Hi <strong style="color:#1a1a1a">${booking.name}</strong> — looking forward to our session. A calendar invite is attached. Reply to this email if you need to reschedule.</p>
+      <p style="font-size:14px;color:#6b6b66;margin:0 0 20px">Hi <strong style="color:#1a1a1a">${nm}</strong> — looking forward to our session. A calendar invite is attached. Reply to this email if you need to reschedule.</p>
 
       <hr style="border:none;border-top:1px solid #e5e5e0;margin:0 0 16px">
       <p style="font-size:13px;color:#a3a39e;margin:0">— Akarshan Arora</p>
@@ -547,29 +600,35 @@ async function sendConfirmationEmail(booking, meetLink, env) {
 }
 
 async function notifyAdmin(env, type, data) {
+  // Escape all user-supplied values for HTML context
+  const d = {};
+  for (const [k, v] of Object.entries(data)) {
+    d[k] = escapeHtml(v);
+  }
+
   let html;
   if (type === 'booking') {
     html = emailShell(`
       <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
         <div style="background:#C45D2C;color:#fff;border-radius:8px;padding:4px 12px;display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">New Booking</div>
 
-        <h2 style="font-weight:800;font-size:20px;margin:0 0 2px">${data.service_name}</h2>
-        <p style="color:#C45D2C;font-size:15px;font-weight:700;margin:0 0 20px">${data.date} at ${data.time} &middot; &#8377;${data.price}</p>
+        <h2 style="font-weight:800;font-size:20px;margin:0 0 2px">${d.service_name}</h2>
+        <p style="color:#C45D2C;font-size:15px;font-weight:700;margin:0 0 20px">${d.date} at ${d.time} &middot; &#8377;${d.price}</p>
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:90px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.name}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.email}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.phone || '—'}</td></tr>
-          ${data.company ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Company</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.company}</td></tr>` : ''}
-          ${data.experience ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Experience</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.experience}</td></tr>` : ''}
-          ${data.coupon_code ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Coupon</td><td style="padding:7px 0;font-size:14px;font-weight:600;color:#3A5A40">${data.coupon_code}</td></tr>` : ''}
+          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:90px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.name}</td></tr>
+          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.email}</td></tr>
+          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.phone || '—'}</td></tr>
+          ${d.company ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Company</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.company}</td></tr>` : ''}
+          ${d.experience ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Experience</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.experience}</td></tr>` : ''}
+          ${d.coupon_code ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Coupon</td><td style="padding:7px 0;font-size:14px;font-weight:600;color:#3A5A40">${d.coupon_code}</td></tr>` : ''}
         </table>
 
-        ${data.about ? `<div style="background:#f8f8f5;border-radius:8px;padding:14px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Call about</p><p style="margin:0;font-size:14px;font-weight:500;line-height:1.5">${data.about}</p></div>` : ''}
+        ${d.about ? `<div style="background:#f8f8f5;border-radius:8px;padding:14px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Call about</p><p style="margin:0;font-size:14px;font-weight:500;line-height:1.5">${d.about}</p></div>` : ''}
 
         <div style="background:#f8f8f5;border-radius:8px;padding:12px 16px;margin-bottom:4px">
           <p style="margin:0;color:#6b6b66;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Payment</p>
-          <p style="margin:0;font-size:12px;font-family:monospace">${data.order_id}${data.payment_id ? ' &middot; ' + data.payment_id : ''}</p>
+          <p style="margin:0;font-size:12px;font-family:monospace">${d.order_id}${d.payment_id ? ' &middot; ' + d.payment_id : ''}</p>
         </div>
       </div>
     `);
@@ -577,11 +636,11 @@ async function notifyAdmin(env, type, data) {
     html = emailShell(`
       <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
         <div style="background:#3A5A40;color:#fff;border-radius:8px;padding:4px 12px;display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">New Download</div>
-        <h2 style="font-weight:800;font-size:20px;margin:0 0 16px">${data.resource}</h2>
+        <h2 style="font-weight:800;font-size:20px;margin:0 0 16px">${d.resource}</h2>
         <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:70px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.name}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.email}</td></tr>
-          ${data.phone ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${data.phone}</td></tr>` : ''}
+          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:70px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.name}</td></tr>
+          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.email}</td></tr>
+          ${d.phone ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.phone}</td></tr>` : ''}
         </table>
       </div>
     `);

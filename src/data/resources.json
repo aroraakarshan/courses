@@ -23,5 +23,10 @@
     "file": "vlsiclicookbookreal-worldpythonclickrecipes.pdf",
     "title": "VLSI CLI Cookbook",
     "description": "Real-world Python Click recipes for VLSI tool automation — argument parsing, subcommands, file I/O, and pipeline integration."
+  },
+  {
+    "file": "seeingthesiliconasimpleguidetovlsiplots.pdf",
+    "title": "Seeing the Silicon: A Simple Guide to VLSI Plots",
+    "description": "Learn to read and interpret the key plots in VLSI analysis — waveform, eye diagram, power profile, and more."
   }
 ]
