@@ -39,9 +39,16 @@ export default {
           }
         }
         if (!pdfBody) {
-          return new Response(JSON.stringify({ error: 'file not found' }), {
-            status: 404, headers: { 'Content-Type': 'application/json' },
-          });
+          const pdfResponse = await env.ASSETS.fetch(
+            new Request(new URL(`/resources/${resource}`, request.url))
+          );
+          if (pdfResponse.status !== 200) {
+            return new Response(JSON.stringify({ error: 'file not found' }), {
+              status: 404, headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          pdfBody = pdfResponse.body;
+          pdfHeaders = new Headers(pdfResponse.headers);
         }
 
         pdfHeaders.set('Content-Disposition', `attachment; filename="${resource}"`);
