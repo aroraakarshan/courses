@@ -8,5 +8,12 @@
 	},
 	"observability": {
 		"enabled": true
-	}
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "courses-db",
+			"database_id": "561918e4-574c-4d7a-8816-c21e7016b033"
+		}
+	]
 }
