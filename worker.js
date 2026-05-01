@@ -1,3 +1,5 @@
+const MEET_LINK = 'https://meet.google.com/axa-gbem-pgj';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -156,7 +158,7 @@ export default {
           });
         }
 
-        let meetLink = `https://meet.google.com/axa-gbem-pgj`;
+        let meetLink = MEET_LINK;
         if (env.DB) {
           const booking = await env.DB.prepare(
             "SELECT * FROM contacts WHERE order_id = ? AND status = 'pending'"
@@ -178,6 +180,7 @@ export default {
                 date: booking.date,
                 time: booking.time,
                 price: booking.price,
+                meet_link: meetLink,
                 coupon_code: booking.coupon_code || '',
                 order_id: booking.order_id,
                 payment_id: paymentId,
@@ -189,7 +192,7 @@ export default {
           }
         }
 
-        return new Response(JSON.stringify({ verified: true, meetLink: meetLink || '' }), {
+        return new Response(JSON.stringify({ verified: true, meetLink }), {
           headers: { 'Content-Type': 'application/json' },
         });
       } catch (e) {
@@ -245,7 +248,7 @@ export default {
         // Free booking (100% off) — bypass Razorpay
         if (actualPrice === 0) {
           const orderId = `free-${service}-${Date.now()}`;
-          let meetLink = 'https://meet.google.com/axa-gbem-pgj';
+          let meetLink = MEET_LINK;
 
           if (env.DB) {
             const booking = { order_id: orderId, service, service_name: serviceName, price: 0, date, time, name, email, phone: phone || '', answers_json: answersJson || '', coupon_code: couponCode || '' };
@@ -261,6 +264,7 @@ export default {
               const answers = safeJsonParse(answersJson);
               await notifyAdmin(env, 'booking', {
                 service_name: serviceName, name, email, date, time, price: 0,
+                meet_link: meetLink,
                 coupon_code: couponCode || '', order_id: orderId, payment_id: 'free',
                 about: answers.about || '', experience: answers.experience || '', company: answers.company || '',
               });
@@ -339,7 +343,7 @@ export default {
           ).bind(orderId).first();
 
           if (booking) {
-            let meetLink = `https://meet.google.com/axa-gbem-pgj`;
+            let meetLink = MEET_LINK;
             if (env.GOOGLE_SERVICE_ACCOUNT_KEY) {
               try {
                 meetLink = await createGoogleMeet(booking, env);
@@ -568,6 +572,8 @@ async function notifyAdmin(env, type, data) {
 
         ${d.about ? `<div style="background:#f8f8f5;border-radius:8px;padding:14px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Call about</p><p style="margin:0;font-size:14px;font-weight:500;line-height:1.5">${d.about}</p></div>` : ''}
 
+        ${`<div style="background:#fdf8f5;border:1px solid #f0d6c2;border-radius:8px;padding:12px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Meet link</p><a href="${MEET_LINK}" style="color:#C45D2C;font-weight:600;font-size:14px;text-decoration:none">${MEET_LINK}</a></div>`}
+
         <div style="background:#f8f8f5;border-radius:8px;padding:12px 16px;margin-bottom:4px">
           <p style="margin:0;color:#6b6b66;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Payment</p>
           <p style="margin:0;font-size:12px;font-family:monospace">${d.order_id}${d.payment_id ? ' &middot; ' + d.payment_id : ''}</p>
@@ -609,7 +615,7 @@ async function notifyAdmin(env, type, data) {
             phone: '',
             date: data.date,
             time: data.time,
-          }, `https://meet.google.com/axa-gbem-pgj`)),
+          }, MEET_LINK)),
           content_type: 'text/calendar; charset=utf-8; method=REQUEST',
         }],
       } : {}),
