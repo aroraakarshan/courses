@@ -8,188 +8,131 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink: #1A1A1A;
+      --paper: #FAFAF7;
+      --accent: #C45D2C;
+      --hairline: #E5E5E0;
+      --muted: #6B6B66;
+      --tertiary: #A3A39E;
+      --surface: #fff;
+    }
+
     body {
       font-family: 'Inter', system-ui, sans-serif;
-      background: #0B0B0C;
-      color: #F5F2EC;
+      background: var(--paper);
+      color: var(--ink);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Nav ── */
     nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 1.25rem 2rem;
-      border-bottom: 1px solid #2A2A2C;
-      position: sticky;
-      top: 0;
-      background: rgba(11,11,12,0.92);
-      backdrop-filter: blur(12px);
-      z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.25rem 2rem; border-bottom: 1px solid var(--hairline);
+      position: sticky; top: 0;
+      background: rgba(250,250,247,0.92); backdrop-filter: blur(12px); z-index: 10;
     }
-    nav a { color: #9A9994; text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
-    nav a:hover { color: #F5F2EC; }
-    .nav-brand { color: #F5F2EC; font-weight: 700; font-size: 1rem; }
+    .nav-brand { font-weight: 700; font-size: 0.95rem; color: var(--ink); text-decoration: none; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.88rem; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--ink); }
 
-    /* ── Hero ── */
-    .hero {
-      padding: 5rem 2rem 4rem;
-      text-align: center;
-      max-width: 640px;
-      margin: 0 auto;
+    /* Hero */
+    .hero { padding: 5rem 2rem 3rem; text-align: center; max-width: 640px; margin: 0 auto; }
+    .hero-eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+      text-transform: uppercase; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 1rem;
     }
-    .hero-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: #D97547;
-      margin-bottom: 1rem;
-    }
-    .hero h1 { font-size: clamp(2.5rem, 5vw, 3.5rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.1; margin-bottom: 1rem; }
-    .hero p { color: #9A9994; font-size: 1.1rem; max-width: 440px; margin: 0 auto 2rem; }
-    .hero-stats { display: flex; gap: 2.5rem; justify-content: center; margin-top: 2rem; }
+    .hero h1 { font-size: clamp(2.4rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.12; margin-bottom: 1rem; }
+    .hero p { color: var(--muted); font-size: 1.1rem; max-width: 440px; margin: 0 auto; }
+    .hero-stats { display: flex; gap: 2.5rem; justify-content: center; margin-top: 2.5rem; }
     .hero-stat { text-align: center; }
-    .hero-stat-value { font-size: 1.8rem; font-weight: 700; }
-    .hero-stat-label { font-size: 0.8rem; color: #6B6A66; margin-top: 0.15rem; }
+    .hero-stat-value { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+    .hero-stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 0.1rem; }
 
-    /* ── Grid ── */
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-      gap: 1.5rem;
-      padding: 0 2rem 4rem;
-      max-width: 1100px;
-      margin: 0 auto;
-    }
+    /* Grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.5rem; padding: 0 2rem 4rem; max-width: 1000px; margin: 0 auto; }
 
-    /* ── Card ── */
-    .card {
-      background: #131314;
-      border: 1px solid #2A2A2C;
-      border-radius: 14px;
-      overflow: hidden;
-      transition: border-color 0.3s, box-shadow 0.3s;
-    }
-    .card:hover { border-color: #3A3A3C; }
-    .card-header { padding: 2rem 2rem 0; }
-    .card-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.3rem;
-      margin-bottom: 1rem;
-    }
-    .card-icon.pdf { background: rgba(217,117,71,0.12); color: #D97547; }
-    .card-icon.cheatsheet { background: rgba(107,148,113,0.12); color: #6B9471; }
-    .card h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.4rem; }
-    .card > .card-header > p { color: #9A9994; font-size: 0.9rem; line-height: 1.5; }
+    /* Card */
+    .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 14px; overflow: hidden; transition: border-color 0.25s, box-shadow 0.25s; }
+    .card:hover { border-color: var(--accent); box-shadow: 6px 6px 0 0 var(--accent); }
 
-    /* ── Form inside card ── */
-    .card-form { padding: 1.75rem 2rem 2rem; }
-    .field { margin-bottom: 1rem; }
-    .field label { display: block; font-size: 0.78rem; font-weight: 600; color: #6B6A66; margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .card-top { padding: 2rem 2rem 0; }
+    .card-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem; }
+    .card-icon.doc { background: rgba(196,93,44,0.08); color: var(--accent); }
+    .card h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.35rem; }
+    .card-desc { color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+
+    /* Form */
+    .card-form { padding: 1.5rem 2rem 2rem; }
+    .field { margin-bottom: 0.9rem; }
+    .field label {
+      display: block; font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem; font-weight: 500; color: var(--tertiary);
+      text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.35rem;
+    }
     .field input {
-      width: 100%;
-      padding: 0.7rem 0.9rem;
-      background: #0B0B0C;
-      border: 1px solid #2A2A2C;
-      border-radius: 8px;
-      color: #F5F2EC;
-      font-size: 0.92rem;
-      font-family: inherit;
+      width: 100%; padding: 0.7rem 0.85rem;
+      background: var(--paper); border: 1px solid var(--hairline); border-radius: 8px;
+      color: var(--ink); font-size: 0.9rem; font-family: 'Inter', system-ui, sans-serif;
       transition: border-color 0.2s;
     }
-    .field input:focus { outline: none; border-color: #D97547; }
-    .field input::placeholder { color: #4A4A4C; }
-    .field .hint { font-size: 0.75rem; color: #6B6A66; margin-top: 0.25rem; }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    .field input::placeholder { color: var(--tertiary); }
+    .error-msg { color: #9A3324; font-size: 0.75rem; margin-top: 0.25rem; display: none; }
 
     .btn {
-      width: 100%;
-      padding: 0.8rem;
-      background: #F5F2EC;
-      color: #0B0B0C;
-      border: none;
-      border-radius: 8px;
-      font-size: 0.92rem;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.15s;
-      margin-top: 0.5rem;
+      width: 100%; padding: 0.8rem; margin-top: 0.75rem;
+      background: var(--ink); color: var(--surface); border: none; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; font-family: inherit; cursor: pointer;
+      transition: background 0.2s, transform 0.12s;
     }
-    .btn:hover { background: #fff; }
+    .btn:hover { background: #333; }
     .btn:active { transform: scale(0.98); }
     .btn.done { background: #3A5A40; color: #fff; pointer-events: none; }
 
-    .error-msg { color: #C04A35; font-size: 0.78rem; margin-top: 0.25rem; display: none; }
+    .dl-link { display: none; text-align: center; margin-top: 0.75rem; font-size: 0.85rem; }
+    .dl-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .dl-link a:hover { text-decoration: underline; }
 
-    .download-link {
-      display: none;
-      text-align: center;
-      margin-top: 0.75rem;
-      font-size: 0.88rem;
-    }
-    .download-link a { color: #D97547; text-decoration: none; font-weight: 600; }
-    .download-link a:hover { text-decoration: underline; }
-
-    /* ── Support block ── */
-    .support {
-      text-align: center;
-      padding: 4rem 2rem 5rem;
-      border-top: 1px solid #2A2A2C;
-      margin-top: 2rem;
-    }
-    .support h3 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
-    .support p { color: #9A9994; margin-bottom: 1.5rem; }
-    .support .btn-support {
-      display: inline-block;
-      padding: 0.85rem 2rem;
-      background: #D97547;
-      color: #fff;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 0.95rem;
+    /* Support */
+    .support { text-align: center; padding: 5rem 2rem; border-top: 1px solid var(--hairline); }
+    .support h3 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 0.5rem; }
+    .support p { color: var(--muted); margin-bottom: 1.5rem; }
+    .support a {
+      display: inline-block; padding: 0.8rem 1.8rem;
+      background: var(--accent); color: #fff; border-radius: 8px;
+      text-decoration: none; font-weight: 600; font-size: 0.92rem;
       transition: background 0.2s;
     }
-    .support .btn-support:hover { background: #c45d2c; }
+    .support a:hover { background: #a84c1f; }
 
-    footer {
-      text-align: center;
-      padding: 2rem;
-      border-top: 1px solid #2A2A2C;
-      color: #6B6A66;
-      font-size: 0.85rem;
-    }
-    footer a { color: #9A9994; }
+    footer { text-align: center; padding: 2rem; border-top: 1px solid var(--hairline); color: var(--tertiary); font-size: 0.84rem; }
+    footer a { color: var(--muted); }
 
     @media (max-width: 480px) {
       .grid { grid-template-columns: 1fr; padding: 0 1rem 3rem; }
       .hero { padding: 3rem 1.25rem 2rem; }
       .hero-stats { gap: 1.5rem; }
-      .card-header, .card-form { padding-left: 1.5rem; padding-right: 1.5rem; }
+      .card-top, .card-form { padding-left: 1.5rem; padding-right: 1.5rem; }
+      nav { padding: 1rem 1.25rem; }
     }
   </style>
 </head>
 <body>
   <nav>
     <a href="/" class="nav-brand">courses.akarshanarora.com</a>
-    <div>
+    <div class="nav-links">
       <a href="/">Courses</a>
-      <span style="color:#2A2A2C;margin:0 0.75rem;">/</span>
-      <a href="/resources/" style="color:#F5F2EC;">Resources</a>
+      <a href="/resources/" class="active">Resources</a>
     </div>
   </nav>
 
   <section class="hero">
-    <div class="hero-label">Free Downloads</div>
+    <div class="hero-eyebrow">Free Downloads</div>
     <h1>Cheatsheets &amp; guides for VLSI engineers.</h1>
-    <p>Practical references you can keep open on a second screen. Built from real project experience.</p>
+    <p>Practical references built from real project experience. Keep them open on a second screen.</p>
     <div class="hero-stats">
       <div class="hero-stat">
         <div class="hero-stat-value">Free</div>
@@ -197,7 +140,7 @@
       </div>
       <div class="hero-stat">
         <div class="hero-stat-value">PDF</div>
-        <div class="hero-stat-label">Download</div>
+        <div class="hero-stat-label">Format</div>
       </div>
       <div class="hero-stat">
         <div class="hero-stat-value">Updated</div>
@@ -207,14 +150,13 @@
   </section>
 
   <div class="grid">
-    <!-- EMIR Cheatsheet -->
     <div class="card">
-      <div class="card-header">
-        <div class="card-icon cheatsheet">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div class="card-top">
+        <div class="card-icon doc">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         </div>
         <h2>EMIR Fundamentals</h2>
-        <p>IR drop, electromigration, power grid analysis — a quick-reference guide covering the core concepts you use daily.</p>
+        <p class="card-desc">IR drop, electromigration, power grid analysis — a quick-reference covering the core concepts you use daily in physical design.</p>
       </div>
       <form class="card-form" data-resource="emir-fundamentals">
         <div class="field">
@@ -228,22 +170,21 @@
           <div class="error-msg">Please enter a valid email address.</div>
         </div>
         <div class="field">
-          <label>Phone <span style="font-weight:400;text-transform:none;">— optional</span></label>
+          <label>Phone — optional</label>
           <input type="tel" name="phone" placeholder="+91 99999 99999" />
         </div>
         <button type="submit" class="btn">Download PDF</button>
-        <div class="download-link">Download started. <a href="#">Click here if it doesn't →</a></div>
+        <div class="dl-link">Download started. <a href="#">Click here if it doesn't →</a></div>
       </form>
     </div>
 
-    <!-- PDN Quick Reference -->
     <div class="card">
-      <div class="card-header">
-        <div class="card-icon pdf">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div class="card-top">
+        <div class="card-icon doc">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         </div>
         <h2>PDN Quick Reference</h2>
-        <p>Power delivery network design checklist, decoupling strategies, and target impedance formulas at a glance.</p>
+        <p class="card-desc">Power delivery network design checklist, decoupling strategies, and target impedance formulas at a glance.</p>
       </div>
       <form class="card-form" data-resource="pdn-quick-reference">
         <div class="field">
@@ -257,19 +198,19 @@
           <div class="error-msg">Please enter a valid email address.</div>
         </div>
         <div class="field">
-          <label>Phone <span style="font-weight:400;text-transform:none;">— optional</span></label>
+          <label>Phone — optional</label>
           <input type="tel" name="phone" placeholder="+91 99999 99999" />
         </div>
         <button type="submit" class="btn">Download PDF</button>
-        <div class="download-link">Download started. <a href="#">Click here if it doesn't →</a></div>
+        <div class="dl-link">Download started. <a href="#">Click here if it doesn't →</a></div>
       </form>
     </div>
   </div>
 
   <section class="support">
     <h3>Found these useful?</h3>
-    <p>These resources are free. If they save you time, consider supporting the work.</p>
-    <a href="#" class="btn-support">💛 Support this work</a>
+    <p>These resources are free and always will be. If they help you, consider supporting.</p>
+    <a href="#">💛 Support this work</a>
   </section>
 
   <footer>
@@ -284,15 +225,13 @@
         const name = form.querySelector('[name="name"]').value.trim();
         const email = form.querySelector('[name="email"]').value.trim();
         const phone = form.querySelector('[name="phone"]').value.trim();
-        const errors = form.querySelectorAll('.error-msg');
         const btn = form.querySelector('.btn');
-        const dl = form.querySelector('.download-link');
-
-        errors.forEach(el => el.style.display = 'none');
+        const dl = form.querySelector('.dl-link');
+        form.querySelectorAll('.error-msg').forEach(el => el.style.display = 'none');
 
         let valid = true;
-        if (!name) { form.querySelector('[name="name"]').nextElementSibling.style.display = 'block'; valid = false; }
-        if (!email || !email.includes('@')) { form.querySelector('[name="email"]').nextElementSibling.style.display = 'block'; valid = false; }
+        if (!name) { form.querySelector('[name="name"]').parentElement.querySelector('.error-msg').style.display = 'block'; valid = false; }
+        if (!email || !email.includes('@')) { form.querySelector('[name="email"]').parentElement.querySelector('.error-msg').style.display = 'block'; valid = false; }
         if (!valid) return;
 
         btn.textContent = 'Downloading...';
