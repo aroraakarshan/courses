@@ -1,623 +1,272 @@
-const MEET_LINK = 'https://meet.google.com/axa-gbem-pgj';
+import { Hono } from 'hono'
+import { logError, verifyRazorpaySignature, safeJsonParse } from './src/lib/utils.js'
+import { sendConfirmationEmail, notifyAdmin } from './src/lib/email.js'
+import { ADMIN_HTML } from './src/lib/admin.js'
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
+const MEET_LINK = 'https://meet.google.com/axa-gbem-pgj'
+const app = new Hono()
 
-    // ─── API: Download form → store lead → return PDF ───
-    if (url.pathname === '/api/download' && request.method === 'POST') {
-      try {
-        const { name, email, phone, resource } = await request.json();
-        if (!name || !email || !resource) {
-          return new Response(JSON.stringify({ error: 'required fields missing' }), {
-            status: 400, headers: { 'Content-Type': 'application/json' },
-          });
-        }
+// ═══ Public APIs ═══
 
-        if (resource.includes('..') || resource.includes('/') || resource.includes('\\')) {
-          return new Response(JSON.stringify({ error: 'invalid resource' }), {
-            status: 400, headers: { 'Content-Type': 'application/json' },
-          });
-        }
+app.post('/api/download', async (c) => {
+  const { name, email, phone, resource } = await c.req.json()
+  if (!name || !email || !resource) return c.json({ error: 'required fields missing' }, 400)
+  if (resource.includes('..') || resource.includes('/') || resource.includes('\\')) return c.json({ error: 'invalid resource' }, 400)
 
-        if (env.DB) {
-          await env.DB.prepare(
-            'INSERT INTO contacts (name, email, phone, resource, source, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          ).bind(name, email, phone || '', resource, 'courses', 'downloaded', Date.now()).run();
-        }
+  const env = c.env
+  if (env.DB) await env.DB.prepare(
+    'INSERT INTO contacts (name, email, phone, resource, source, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(name, email, phone || '', resource, 'courses', 'downloaded', Date.now()).run()
 
-        if (env.RESEND_API_KEY) {
-          await notifyAdmin(env, 'download', { name, email, phone: phone || '', resource });
-        }
+  if (env.RESEND_API_KEY) notifyAdmin(env, 'download', { name, email, phone: phone || '', resource })
 
-        let pdfBody, pdfHeaders;
-        if (env.RESOURCES) {
-          const obj = await env.RESOURCES.get(resource);
-          if (obj) {
-            pdfBody = obj.body;
-            pdfHeaders = new Headers();
-            pdfHeaders.set('Content-Type', obj.httpMetadata?.contentType || 'application/pdf');
-            obj.writeHttpMetadata(pdfHeaders);
-          }
-        }
-        if (!pdfBody) {
-          const pdfResponse = await env.ASSETS.fetch(
-            new Request(new URL(`/resources/${resource}`, request.url))
-          );
-          if (pdfResponse.status !== 200) {
-            return new Response(JSON.stringify({ error: 'file not found' }), {
-              status: 404, headers: { 'Content-Type': 'application/json' },
-            });
-          }
-          pdfBody = pdfResponse.body;
-          pdfHeaders = new Headers(pdfResponse.headers);
-        }
-
-        pdfHeaders.set('Content-Disposition', `attachment; filename="${resource}"`);
-        return new Response(pdfBody, { status: 200, headers: pdfHeaders });
-
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'Internal error' }), {
-          status: 500, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    // ─── API: Get service details ───
-    if (url.pathname === '/api/service' && request.method === 'GET') {
-      const slug = url.searchParams.get('slug');
-      if (!slug || !env.DB) {
-        return new Response(JSON.stringify({ error: 'Not found' }), {
-          status: 404, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      const svc = await env.DB.prepare(
-        'SELECT slug, name, price FROM services WHERE slug = ? AND active = 1'
-      ).bind(slug).first();
-      if (!svc) {
-        return new Response(JSON.stringify({ error: 'Not found' }), {
-          status: 404, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return new Response(JSON.stringify(svc), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ─── API: Validate coupon ───
-    if (url.pathname === '/api/validate-coupon' && request.method === 'POST') {
-      try {
-        const { code, service, price } = await request.json();
-        if (!code || !price) {
-          return new Response(JSON.stringify({ valid: false, error: 'Missing fields' }), {
-            status: 400, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Fetch real price from D1 so client can't fake it
-        let actualPrice = price;
-        if (env.DB && service) {
-          const svc = await env.DB.prepare(
-            'SELECT price FROM services WHERE slug = ? AND active = 1'
-          ).bind(service).first();
-          if (svc) actualPrice = svc.price;
-        }
-
-        if (env.DB) {
-          const coupon = await env.DB.prepare(
-            "SELECT * FROM coupons WHERE code = ? AND active = 1 AND (max_uses = 0 OR used < max_uses) AND (service = '' OR service = ?)"
-          ).bind(code.toUpperCase().trim(), service || '').first();
-
-          if (coupon) {
-            const discounted = Math.round(actualPrice * (100 - coupon.discount_percent) / 100);
-            return new Response(JSON.stringify({
-              valid: true,
-              originalPrice: actualPrice,
-              discountedPrice: discounted,
-              discountPercent: coupon.discount_percent,
-            }), { headers: { 'Content-Type': 'application/json' } });
-          }
-        }
-
-        return new Response(JSON.stringify({ valid: false, error: 'Invalid or expired coupon' }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'Internal error' }), {
-          status: 500, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    // ─── API: Verify payment & confirm booking ───
-    if (url.pathname === '/api/verify-payment' && request.method === 'POST') {
-      try {
-        const { orderId, paymentId, signature } = await request.json();
-        if (!orderId || !paymentId) {
-          return new Response(JSON.stringify({ verified: false, error: 'Missing details' }), {
-            status: 400, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Verify payment with Razorpay
-        const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
-        const rzpRes = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}`, {
-          headers: { 'Authorization': `Basic ${auth}` },
-        });
-        const payment = await rzpRes.json();
-
-        if (!payment || payment.status !== 'captured') {
-          return new Response(JSON.stringify({ verified: false, error: 'Payment not captured' }), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        if (payment.order_id !== orderId) {
-          return new Response(JSON.stringify({ verified: false, error: 'Order mismatch' }), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        let meetLink = MEET_LINK;
-        if (env.DB) {
-          const booking = await env.DB.prepare(
-            "SELECT * FROM contacts WHERE order_id = ? AND status = 'pending'"
-          ).bind(orderId).first();
-
-          if (booking) {
-
-            await env.DB.prepare(
-              "UPDATE contacts SET status = ?, payment_id = ?, meet_link = ? WHERE order_id = ? AND status = 'pending'"
-            ).bind('confirmed', paymentId, meetLink, orderId).run();
-
-            if (env.RESEND_API_KEY) {
-              await sendConfirmationEmail(booking, meetLink, env);
-              const answers = safeJsonParse(booking.answers_json);
-              await notifyAdmin(env, 'booking', {
-                service_name: booking.service_name,
-                name: booking.name,
-                email: booking.email,
-                date: booking.date,
-                time: booking.time,
-                price: booking.price,
-                meet_link: meetLink,
-                coupon_code: booking.coupon_code || '',
-                order_id: booking.order_id,
-                payment_id: paymentId,
-                about: answers.about || '',
-                experience: answers.experience || '',
-                company: answers.company || '',
-              });
-            }
-          }
-        }
-
-        return new Response(JSON.stringify({ verified: true, meetLink }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ verified: false, error: e.message }), {
-          status: 400, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    // ─── API: Create Razorpay order ───
-    if (url.pathname === '/api/create-order' && request.method === 'POST') {
-      try {
-        const { service, serviceName, price, originalPrice, date, time, name, email, phone, couponCode, answersJson } = await request.json();
-        if (!service || !date || !time || !name || !email) {
-          return new Response(JSON.stringify({ error: 'required fields missing' }), {
-            status: 400, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Fetch real price from D1 — client price is display-only, never trusted
-        let actualPrice = price;
-        if (env.DB) {
-          const svc = await env.DB.prepare(
-            'SELECT price FROM services WHERE slug = ? AND active = 1'
-          ).bind(service).first();
-          if (!svc) {
-            return new Response(JSON.stringify({ error: 'invalid service' }), {
-              status: 400, headers: { 'Content-Type': 'application/json' },
-            });
-          }
-          actualPrice = svc.price;
-        }
-
-        // Validate coupon if provided and increment usage
-        if (couponCode && env.DB) {
-          const coupon = await env.DB.prepare(
-            "SELECT * FROM coupons WHERE code = ? AND active = 1 AND (max_uses = 0 OR used < max_uses) AND (service = '' OR service = ?)"
-          ).bind(couponCode.toUpperCase().trim(), service).first();
-
-          if (coupon) {
-            actualPrice = Math.round(actualPrice * (100 - coupon.discount_percent) / 100);
-            const result = await env.DB.prepare(
-              "UPDATE coupons SET used = used + 1 WHERE id = ? AND active = 1 AND (max_uses = 0 OR used < max_uses)"
-            ).bind(coupon.id).run();
-            if (result.meta.changes === 0) {
-              return new Response(JSON.stringify({ error: 'Coupon no longer available' }), {
-                status: 400, headers: { 'Content-Type': 'application/json' },
-              });
-            }
-          }
-        }
-
-        // Free booking (100% off) — bypass Razorpay
-        if (actualPrice === 0) {
-          const orderId = `free-${service}-${Date.now()}`;
-          let meetLink = MEET_LINK;
-
-          if (env.DB) {
-            const booking = { order_id: orderId, service, service_name: serviceName, price: 0, date, time, name, email, phone: phone || '', answers_json: answersJson || '', coupon_code: couponCode || '' };
-
-
-            await env.DB.prepare(
-              `INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at, meet_link, payment_id)
-               VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'courses', 'confirmed', ?, ?, 'free')`
-            ).bind(orderId, service, serviceName, date, time, name, email, phone || '', answersJson || '', couponCode || '', Date.now(), meetLink).run();
-
-            if (env.RESEND_API_KEY) {
-              await sendConfirmationEmail(booking, meetLink, env);
-              const answers = safeJsonParse(answersJson);
-              await notifyAdmin(env, 'booking', {
-                service_name: serviceName, name, email, date, time, price: 0,
-                meet_link: meetLink,
-                coupon_code: couponCode || '', order_id: orderId, payment_id: 'free',
-                about: answers.about || '', experience: answers.experience || '', company: answers.company || '',
-              });
-            }
-          }
-
-          return new Response(JSON.stringify({ free: true, orderId, meetLink }), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Create Razorpay order
-        const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
-        const rzpRes = await fetch('https://api.razorpay.com/v1/orders', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: actualPrice * 100,
-            currency: 'INR',
-            receipt: `${service}-${Date.now()}`,
-            notes: { service, serviceName, date, time, name, email, phone, couponCode: couponCode || '' },
-          }),
-        });
-
-        const order = await rzpRes.json();
-        if (!order.id) {
-          return new Response(JSON.stringify({ error: 'order creation failed' }), {
-            status: 500, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        // Store pending booking
-        if (env.DB) {
-          await env.DB.prepare(
-            `INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-          ).bind(order.id, service, serviceName, actualPrice, date, time, name, email, phone || '', answersJson || '', couponCode || '', 'courses', Date.now()).run();
-        }
-
-        return new Response(JSON.stringify({ orderId: order.id }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'Internal error' }), {
-          status: 500, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    // ─── API: Razorpay payment webhook ───
-    if (url.pathname === '/api/payment-webhook' && request.method === 'POST') {
-      try {
-        const body = await request.json();
-
-        // Verify webhook signature
-        const signature = request.headers.get('x-razorpay-signature');
-        const isValid = await verifyRazorpaySignature(body, signature, env.RAZORPAY_WEBHOOK_SECRET);
-        if (!isValid) {
-          return new Response('invalid signature', { status: 403 });
-        }
-
-        const event = body.event;
-        const payment = body.payload?.payment?.entity;
-        const orderId = payment?.order_id;
-        const paymentId = payment?.id;
-
-        if (!orderId || !env.DB) return new Response('ok');
-
-        if (event === 'payment.captured') {
-          const booking = await env.DB.prepare(
-            'SELECT * FROM contacts WHERE order_id = ?'
-          ).bind(orderId).first();
-
-          if (booking) {
-            let meetLink = MEET_LINK;
-            if (env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-              try {
-                meetLink = await createGoogleMeet(booking, env);
-              } catch (e) {
-                console.log('Meet creation failed:', e.message);
-              }
-            }
-
-            await env.DB.prepare(
-              'UPDATE contacts SET status = ?, payment_id = ?, meet_link = ? WHERE order_id = ?'
-            ).bind('confirmed', paymentId, meetLink, orderId).run();
-
-            if (env.RESEND_API_KEY) {
-              await sendConfirmationEmail(booking, meetLink, env);
-            }
-          }
-        } else if (event === 'payment.failed') {
-          await env.DB.prepare(
-            "UPDATE contacts SET status = ?, payment_id = ? WHERE order_id = ? AND status = 'pending'"
-          ).bind('failed', paymentId, orderId).run();
-
-        } else if (event === 'refund.created' || event === 'refund.processed') {
-          await env.DB.prepare(
-            "UPDATE contacts SET status = ?, payment_id = ? WHERE order_id = ? AND status = 'confirmed'"
-          ).bind('refunded', paymentId, orderId).run();
-        } else if (event === 'refund.failed') {
-          // Refund didn't go through — booking stays confirmed, nothing to do
-        }
-
-        return new Response('ok');
-
-      } catch (e) {
-        console.log('Webhook error:', e.message);
-        return new Response('error', { status: 400 });
-      }
-    }
-
-    // ─── API: Get booking status ───
-    if (url.pathname === '/api/booking' && request.method === 'GET') {
-      const orderId = url.searchParams.get('orderId');
-      if (!orderId || !env.DB) {
-        return new Response(JSON.stringify({ status: 'unknown' }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      const booking = await env.DB.prepare(
-        'SELECT status, meet_link, service_name, date, time FROM contacts WHERE order_id = ?'
-      ).bind(orderId).first();
-
-      return new Response(JSON.stringify(booking || { status: 'not_found' }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ─── API: Get booked slots for a date ───
-    if (url.pathname === '/api/booked-slots' && request.method === 'GET') {
-      const date = url.searchParams.get('date');
-      if (!date || !env.DB) {
-        return new Response(JSON.stringify({ slots: [] }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      const rows = await env.DB.prepare(
-        "SELECT time FROM contacts WHERE date = ? AND status = 'confirmed'"
-      ).bind(date).all();
-      const slots = (rows.results || []).map(r => r.time);
-      return new Response(JSON.stringify({ slots }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Block direct PDF access
-    if (url.pathname.startsWith('/resources/') && url.pathname.endsWith('.pdf')) {
-      const filename = url.pathname.split('/').pop();
-      return Response.redirect(`${url.origin}/resources/download/?r=${filename}`, 302);
-    }
-
-    // Serve static
-    return env.ASSETS.fetch(request);
-  },
-};
-
-// ─── Helpers ───
-
-async function verifyRazorpaySignature(body, signature, secret) {
-  if (!secret || !signature) return false;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
-  );
-  const signedPayload = body.payload ? JSON.stringify(body.payload) : JSON.stringify(body);
-  return crypto.subtle.verify(
-    'HMAC', key,
-    hexToBytes(signature),
-    encoder.encode(signedPayload)
-  );
-}
-
-function hexToBytes(hex) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  let body, headers
+  if (env.RESOURCES) {
+    const obj = await env.RESOURCES.get(resource)
+    if (obj) { body = obj.body; headers = new Headers(); headers.set('Content-Type', obj.httpMetadata?.contentType || 'application/pdf'); obj.writeHttpMetadata(headers) }
   }
-  return bytes;
-}
+  if (!body) {
+    const r = await env.ASSETS.fetch(new Request(new URL('/resources/' + resource, c.req.url)))
+    if (r.status !== 200) return c.json({ error: 'file not found' }, 404)
+    body = r.body; headers = new Headers(r.headers)
+  }
+  headers.set('Content-Disposition', 'attachment; filename="' + resource + '"')
+  return new Response(body, { status: 200, headers })
+})
 
-function parseDateTime(date, timeSlot) {
-  const hour = parseInt(timeSlot.split(':')[0]);
-  const isPM = timeSlot.includes('PM') && hour !== 12;
-  const isAM = timeSlot.includes('AM') && hour === 12;
-  const h = isPM ? hour + 12 : isAM ? 0 : hour;
-  const dt = Temporal.PlainDateTime.from(`${date}T${String(h).padStart(2, '0')}:00:00`);
-  return new Date(dt.toZonedDateTime('Asia/Kolkata', { disambiguation: 'earlier' }).epochMilliseconds);
-}
+app.get('/api/services', async (c) => {
+  if (!c.env.DB) return c.json([])
+  const rows = await c.env.DB.prepare('SELECT slug, name, price FROM services WHERE active = 1 ORDER BY price').all()
+  return c.json(rows.results || [])
+})
 
-function safeJsonParse(str) {
-  try { return JSON.parse(str || '{}'); } catch { return {}; }
-}
+app.get('/api/availability', async (c) => {
+  if (!c.env.DB) return c.json([])
+  const rows = await c.env.DB.prepare('SELECT day_of_week, start_time, end_time FROM availability').all()
+  return c.json(rows.results || [])
+})
 
-function escapeHtml(str) {
-  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+app.get('/api/service', async (c) => {
+  const slug = c.req.query('slug')
+  if (!slug || !c.env.DB) return c.json({ error: 'Not found' }, 404)
+  const svc = await c.env.DB.prepare('SELECT slug, name, price FROM services WHERE slug = ? AND active = 1').bind(slug).first()
+  return svc ? c.json(svc) : c.json({ error: 'Not found' }, 404)
+})
 
-function generateICS(booking, meetLink) {
-  const start = parseDateTime(booking.date, booking.time);
-  const end = new Date(start.getTime() + 55 * 60000);
-  const fmt = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  return [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Akarshan Arora//Courses//EN',
-    'BEGIN:VEVENT',
-    `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
-    `SUMMARY:1:1 — ${booking.service_name} with ${booking.name}`,
-    `DESCRIPTION:Session: ${booking.service_name}\\nName: ${booking.name}\\nEmail: ${booking.email}\\nPhone: ${booking.phone || 'N/A'}\\nMeet: ${meetLink}`,
-    `LOCATION:${meetLink}`,
-    'END:VEVENT', 'END:VCALENDAR'
-  ].join('\r\n');
-}
+app.post('/api/validate-coupon', async (c) => {
+  const { code, service, price } = await c.req.json()
+  if (!code || !price) return c.json({ valid: false, error: 'Missing fields' }, 400)
+  const env = c.env
 
-function btoaSafe(str) {
-  // btoa only handles Latin1 — encode Unicode safely
-  const bytes = new TextEncoder().encode(str);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
+  let actualPrice = price
+  if (env.DB && service) {
+    const svc = await env.DB.prepare('SELECT price FROM services WHERE slug = ? AND active = 1').bind(service).first()
+    if (svc) actualPrice = svc.price
+  }
+  if (env.DB) {
+    const coupon = await env.DB.prepare(
+      "SELECT * FROM coupons WHERE code = ? AND active = 1 AND (max_uses = 0 OR used < max_uses) AND (service = '' OR service = ?)"
+    ).bind(code.toUpperCase().trim(), service || '').first()
+    if (coupon) {
+      const discounted = Math.round(actualPrice * (100 - coupon.discount_percent) / 100)
+      return c.json({ valid: true, originalPrice: actualPrice, discountedPrice: discounted, discountPercent: coupon.discount_percent })
+    }
+  }
+  return c.json({ valid: false, error: 'Invalid or expired coupon' })
+})
 
-function emailShell(content) {
-  return `<!DOCTYPE html><html><body style="font-family:'Inter',system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1a1a1a;line-height:1.6;background:#fafaf7">${content}</body></html>`;
-}
+app.post('/api/verify-payment', async (c) => {
+  const { orderId, paymentId } = await c.req.json()
+  if (!orderId || !paymentId) return c.json({ verified: false, error: 'Missing details' }, 400)
 
-async function sendConfirmationEmail(booking, meetLink, env) {
-  const svc = escapeHtml(booking.service_name);
-  const nm = escapeHtml(booking.name);
-  const em = escapeHtml(booking.email);
-  const ph = escapeHtml(booking.phone || 'N/A');
-  const dt = escapeHtml(booking.date);
-  const tm = escapeHtml(booking.time);
-  const ml = escapeHtml(meetLink);
+  const env = c.env
+  const auth = btoa(env.RAZORPAY_KEY_ID + ':' + env.RAZORPAY_KEY_SECRET)
+  const p = await (await fetch('https://api.razorpay.com/v1/payments/' + paymentId, { headers: { Authorization: 'Basic ' + auth } })).json()
+  if (!p || p.status !== 'captured') return c.json({ verified: false, error: 'Payment not captured' })
+  if (p.order_id !== orderId) return c.json({ verified: false, error: 'Order mismatch' })
 
-  const html = emailShell(`
-    <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
-      <div style="font-size:32px;margin-bottom:12px">&#x1F44B;</div>
-      <h2 style="font-weight:800;font-size:22px;margin:0 0 4px">Booking Confirmed</h2>
-      <p style="color:#6b6b66;margin:0 0 24px;font-size:15px">${svc}</p>
+  if (!env.DB) return c.json({ verified: true, meetLink: MEET_LINK })
+  const booking = await env.DB.prepare("SELECT * FROM contacts WHERE order_id = ? AND status = 'pending'").bind(orderId).first()
+  if (!booking) return c.json({ verified: true, meetLink: MEET_LINK })
 
-      <div style="background:#fdf8f5;border:1px solid #f0d6c2;border-radius:10px;padding:20px;margin-bottom:24px">
-        <p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#1a1a1a">${dt} at ${tm} IST</p>
-        <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:6px 0;color:#6b6b66;font-size:14px;width:80px">Duration</td><td style="padding:6px 0;font-size:14px;font-weight:600">55 minutes</td></tr>
-          ${meetLink ? `<tr><td style="padding:6px 0;color:#6b6b66;font-size:14px">Meet link</td><td style="padding:6px 0;font-size:14px"><a href="${ml}" style="color:#C45D2C;font-weight:600;text-decoration:none">Join Call &rarr;</a></td></tr>` : ''}
-        </table>
-      </div>
+  await env.DB.prepare("UPDATE contacts SET status = ?, payment_id = ?, meet_link = ? WHERE order_id = ? AND status = 'pending'")
+    .bind('confirmed', paymentId, MEET_LINK, orderId).run()
 
-      <p style="font-size:14px;color:#6b6b66;margin:0 0 20px">Hi <strong style="color:#1a1a1a">${nm}</strong> — looking forward to our session. A calendar invite is attached. Reply to this email if you need to reschedule.</p>
+  if (env.RESEND_API_KEY) {
+    await sendConfirmationEmail(booking, MEET_LINK, env)
+    const answers = safeJsonParse(booking.answers_json)
+    await notifyAdmin(env, 'booking', {
+      service_name: booking.service_name, name: booking.name, email: booking.email,
+      date: booking.date, time: booking.time, price: booking.price, meet_link: MEET_LINK,
+      coupon_code: booking.coupon_code || '', order_id: booking.order_id, payment_id: paymentId,
+      about: answers.about || '', experience: answers.experience || '', company: answers.company || '',
+    })
+  }
+  return c.json({ verified: true, meetLink: MEET_LINK })
+})
 
-      <hr style="border:none;border-top:1px solid #e5e5e0;margin:0 0 16px">
-      <p style="font-size:13px;color:#a3a39e;margin:0">— Akarshan Arora</p>
-    </div>
-  `);
+app.post('/api/create-order', async (c) => {
+  const { service, serviceName, price, date, time, name, email, phone, couponCode, answersJson } = await c.req.json()
+  if (!service || !date || !time || !name || !email) return c.json({ error: 'required fields missing' }, 400)
 
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'Akarshan Arora <booking@akarshanarora.com>',
-      to: [booking.email],
-      subject: `Confirmed: ${booking.service_name} on ${booking.date}`,
-      html,
-      attachments: [{
-        filename: 'session.ics',
-        content: btoaSafe(generateICS(booking, meetLink)),
-        content_type: 'text/calendar; charset=utf-8; method=REQUEST',
-      }],
-    }),
-  });
-}
-
-async function notifyAdmin(env, type, data) {
-  // Escape all user-supplied values for HTML context
-  const d = {};
-  for (const [k, v] of Object.entries(data)) {
-    d[k] = escapeHtml(v);
+  const env = c.env
+  if (env.DB) {
+    const existing = await env.DB.prepare("SELECT id FROM contacts WHERE date = ? AND time = ? AND status = 'confirmed'").bind(date, time).first()
+    if (existing) return c.json({ error: 'This time slot is already booked.' }, 409)
   }
 
-  let html;
-  if (type === 'booking') {
-    html = emailShell(`
-      <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
-        <div style="background:#C45D2C;color:#fff;border-radius:8px;padding:4px 12px;display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">New Booking</div>
-
-        <h2 style="font-weight:800;font-size:20px;margin:0 0 2px">${d.service_name}</h2>
-        <p style="color:#C45D2C;font-size:15px;font-weight:700;margin:0 0 20px">${d.date} at ${d.time} &middot; &#8377;${d.price}</p>
-
-        <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:90px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.name}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.email}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.phone || '—'}</td></tr>
-          ${d.company ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Company</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.company}</td></tr>` : ''}
-          ${d.experience ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Experience</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.experience}</td></tr>` : ''}
-          ${d.coupon_code ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Coupon</td><td style="padding:7px 0;font-size:14px;font-weight:600;color:#3A5A40">${d.coupon_code}</td></tr>` : ''}
-        </table>
-
-        ${d.about ? `<div style="background:#f8f8f5;border-radius:8px;padding:14px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Call about</p><p style="margin:0;font-size:14px;font-weight:500;line-height:1.5">${d.about}</p></div>` : ''}
-
-        ${`<div style="background:#fdf8f5;border:1px solid #f0d6c2;border-radius:8px;padding:12px 16px;margin-bottom:16px"><p style="margin:0;color:#6b6b66;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Meet link</p><a href="${MEET_LINK}" style="color:#C45D2C;font-weight:600;font-size:14px;text-decoration:none">${MEET_LINK}</a></div>`}
-
-        <div style="background:#f8f8f5;border-radius:8px;padding:12px 16px;margin-bottom:4px">
-          <p style="margin:0;color:#6b6b66;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Payment</p>
-          <p style="margin:0;font-size:12px;font-family:monospace">${d.order_id}${d.payment_id ? ' &middot; ' + d.payment_id : ''}</p>
-        </div>
-      </div>
-    `);
-  } else {
-    html = emailShell(`
-      <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e0">
-        <div style="background:#3A5A40;color:#fff;border-radius:8px;padding:4px 12px;display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">New Download</div>
-        <h2 style="font-weight:800;font-size:20px;margin:0 0 16px">${d.resource}</h2>
-        <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px;width:70px">Name</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.name}</td></tr>
-          <tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Email</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.email}</td></tr>
-          ${d.phone ? `<tr><td style="padding:7px 0;color:#6b6b66;font-size:14px">Phone</td><td style="padding:7px 0;font-size:14px;font-weight:600">${d.phone}</td></tr>` : ''}
-        </table>
-      </div>
-    `);
+  let actualPrice = price
+  if (env.DB) {
+    const svc = await env.DB.prepare('SELECT price FROM services WHERE slug = ? AND active = 1').bind(service).first()
+    if (!svc) return c.json({ error: 'invalid service' }, 400)
+    actualPrice = svc.price
   }
 
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'Courses <booking@akarshanarora.com>',
-      to: [env.ADMIN_EMAIL],
-      subject: type === 'booking' ? `Booking: ${data.service_name} — ${data.name}` : `Download: ${data.resource} — ${data.name}`,
-      html,
-      ...(type === 'booking' ? {
-        attachments: [{
-          filename: `${data.service_name}-${data.date}.ics`,
-          content: btoaSafe(generateICS({
-            service_name: data.service_name,
-            name: data.name,
-            email: data.email,
-            phone: '',
-            date: data.date,
-            time: data.time,
-          }, MEET_LINK)),
-          content_type: 'text/calendar; charset=utf-8; method=REQUEST',
-        }],
-      } : {}),
-    }),
-  });
-}
+  if (couponCode && env.DB) {
+    const coupon = await env.DB.prepare(
+      "SELECT * FROM coupons WHERE code = ? AND active = 1 AND (max_uses = 0 OR used < max_uses) AND (service = '' OR service = ?)"
+    ).bind(couponCode.toUpperCase().trim(), service).first()
+    if (coupon) {
+      actualPrice = Math.round(actualPrice * (100 - coupon.discount_percent) / 100)
+      const r = await env.DB.prepare("UPDATE coupons SET used = used + 1 WHERE id = ? AND active = 1 AND (max_uses = 0 OR used < max_uses)").bind(coupon.id).run()
+      if (r.meta.changes === 0) return c.json({ error: 'Coupon no longer available' }, 400)
+    }
+  }
+
+  // Free booking
+  if (actualPrice === 0) {
+    const orderId = 'free-' + service + '-' + Date.now()
+    if (env.DB) {
+      const booking = { order_id: orderId, service, service_name: serviceName, price: 0, date, time, name, email, phone: phone || '', answers_json: answersJson || '', coupon_code: couponCode || '' }
+      await env.DB.prepare(
+        "INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at, meet_link, payment_id) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'courses', 'confirmed', ?, ?, 'free')"
+      ).bind(orderId, service, serviceName, date, time, name, email, phone || '', answersJson || '', couponCode || '', Date.now(), MEET_LINK).run()
+      if (env.RESEND_API_KEY) {
+        try {
+          await sendConfirmationEmail(booking, MEET_LINK, env)
+          const a = safeJsonParse(answersJson)
+          await notifyAdmin(env, 'booking', { service_name: serviceName, name, email, date, time, price: 0, meet_link: MEET_LINK, coupon_code: couponCode || '', order_id: orderId, payment_id: 'free', about: a.about || '', experience: a.experience || '', company: a.company || '' })
+        } catch (e) { await logError(env, 'free-booking-email', { orderId }, e) }
+      }
+    }
+    return c.json({ free: true, orderId, meetLink: MEET_LINK })
+  }
+
+  // Paid booking
+  const auth = btoa(env.RAZORPAY_KEY_ID + ':' + env.RAZORPAY_KEY_SECRET)
+  const order = await (await fetch('https://api.razorpay.com/v1/orders', {
+    method: 'POST', headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: actualPrice * 100, currency: 'INR', receipt: service + '-' + Date.now(), notes: { service, serviceName, date, time, name, email, phone, couponCode: couponCode || '' } }),
+  })).json()
+  if (!order.id) return c.json({ error: 'order creation failed' }, 500)
+
+  if (env.DB) await env.DB.prepare(
+    "INSERT INTO contacts (order_id, service, service_name, price, date, time, name, email, phone, answers_json, coupon_code, source, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)"
+  ).bind(order.id, service, serviceName, actualPrice, date, time, name, email, phone || '', answersJson || '', couponCode || '', 'courses', Date.now()).run()
+
+  return c.json({ orderId: order.id })
+})
+
+app.post('/api/payment-webhook', async (c) => {
+  const body = await c.req.json()
+  const env = c.env
+  if (!(await verifyRazorpaySignature(body, c.req.header('x-razorpay-signature'), env.RAZORPAY_WEBHOOK_SECRET)))
+    return new Response('invalid signature', { status: 403 })
+
+  const p = body.payload?.payment?.entity
+  const orderId = p?.order_id, paymentId = p?.id
+  if (!orderId || !env.DB) return new Response('ok')
+
+  if (body.event === 'payment.captured') {
+    const booking = await env.DB.prepare('SELECT * FROM contacts WHERE order_id = ?').bind(orderId).first()
+    if (booking) {
+      await env.DB.prepare("UPDATE contacts SET status = ?, payment_id = ?, meet_link = ? WHERE order_id = ?").bind('confirmed', paymentId, MEET_LINK, orderId).run()
+      if (env.RESEND_API_KEY) await sendConfirmationEmail(booking, MEET_LINK, env)
+    }
+  } else if (body.event === 'payment.failed') {
+    await env.DB.prepare("UPDATE contacts SET status = ?, payment_id = ? WHERE order_id = ? AND status = 'pending'").bind('failed', paymentId, orderId).run()
+  } else if (body.event === 'refund.created' || body.event === 'refund.processed') {
+    await env.DB.prepare("UPDATE contacts SET status = ?, payment_id = ? WHERE order_id = ? AND status = 'confirmed'").bind('refunded', paymentId, orderId).run()
+  }
+  return new Response('ok')
+})
+
+app.get('/api/booking', async (c) => {
+  const orderId = c.req.query('orderId')
+  if (!orderId || !c.env.DB) return c.json({ status: 'unknown' })
+  const b = await c.env.DB.prepare('SELECT status, meet_link, service_name, date, time FROM contacts WHERE order_id = ?').bind(orderId).first()
+  return c.json(b || { status: 'not_found' })
+})
+
+app.get('/api/booked-slots', async (c) => {
+  const date = c.req.query('date')
+  if (!date || !c.env.DB) return c.json({ slots: [] })
+  const rows = await c.env.DB.prepare("SELECT time FROM contacts WHERE date = ? AND status = 'confirmed'").bind(date).all()
+  return c.json({ slots: (rows.results || []).map(r => r.time) })
+})
+
+// ═══ Admin ═══
+
+app.get('/admin', (c) => c.html(ADMIN_HTML))
+app.get('/admin/*', (c) => c.html(ADMIN_HTML))
+
+app.post('/admin/api/services', async (c) => {
+  const { slug, name, price } = await c.req.json()
+  if (!slug || !name || !price) return c.json({ error: 'Missing fields' }, 400)
+  await c.env.DB.prepare('INSERT OR REPLACE INTO services (slug, name, price, active) VALUES (?, ?, ?, 1)').bind(slug, name, price).run()
+  return c.json({ ok: true })
+})
+
+app.delete('/admin/api/services', async (c) => {
+  const { slug } = await c.req.json()
+  await c.env.DB.prepare('UPDATE services SET active = 0 WHERE slug = ?').bind(slug).run()
+  return c.json({ ok: true })
+})
+
+app.post('/admin/api/coupons', async (c) => {
+  const { code, discount_percent, service, max_uses } = await c.req.json()
+  if (!code || !discount_percent) return c.json({ error: 'Missing fields' }, 400)
+  await c.env.DB.prepare('INSERT OR REPLACE INTO coupons (code, discount_percent, service, max_uses, active) VALUES (?, ?, ?, ?, 1)').bind(code.toUpperCase(), discount_percent, service || '', max_uses || 0).run()
+  return c.json({ ok: true })
+})
+
+app.delete('/admin/api/coupons', async (c) => {
+  const { code } = await c.req.json()
+  await c.env.DB.prepare('UPDATE coupons SET active = 0 WHERE code = ?').bind(code).run()
+  return c.json({ ok: true })
+})
+
+app.get('/admin/api/coupons', async (c) => {
+  if (!c.env.DB) return c.json([])
+  const rows = await c.env.DB.prepare('SELECT * FROM coupons WHERE active = 1 ORDER BY code').all()
+  return c.json(rows.results || [])
+})
+
+app.post('/admin/api/availability', async (c) => {
+  const { day_of_week, start_time, end_time } = await c.req.json()
+  await c.env.DB.prepare('INSERT OR REPLACE INTO availability (day_of_week, start_time, end_time) VALUES (?, ?, ?)').bind(day_of_week, start_time, end_time).run()
+  return c.json({ ok: true })
+})
+
+app.delete('/admin/api/availability', async (c) => {
+  const { day_of_week } = await c.req.json()
+  await c.env.DB.prepare('DELETE FROM availability WHERE day_of_week = ?').bind(day_of_week).run()
+  return c.json({ ok: true })
+})
+
+app.get('/admin/api/contacts', async (c) => {
+  if (!c.env.DB) return c.json([])
+  const rows = await c.env.DB.prepare('SELECT * FROM contacts ORDER BY created_at DESC LIMIT 50').all()
+  return c.json(rows.results || [])
+})
+
+// ═══ Static fallback ═══
+
+app.get('/resources/*', (c) => {
+  const path = c.req.path
+  if (path.endsWith('.pdf')) return c.redirect('/resources/download/?r=' + path.split('/').pop(), 302)
+})
+
+app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw))
+
+export default app

@@ -1,30 +1,61 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import availability from '../../data/availability.json';
 
-const schedule = availability.schedule;
-const availableDays = Object.keys(schedule).map(Number);
+const urlParams = Astro.url.searchParams;
+const service = urlParams.get('s');
+const serviceName = urlParams.get('n');
+const dur = parseInt(urlParams.get('d')) || 55;
+
+if (!service || !serviceName) return Astro.redirect('/book/');
+
 const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const bufferMinutes = 5;
 
-// Build list of next 5 available dates
-const today = new Date();
-today.setHours(0,0,0,0);
+let slots = [];
+let servicePrice = 0;
+let dateMap = {};
 
-const dates = [];
-let d = new Date(today);
-while (dates.length < 5) {
-  if (availableDays.includes(d.getDay())) {
-    dates.push({
-      iso: d.toISOString().split('T')[0],
-      day: d.getDate(),
-      dow: d.getDay(),
-      dowName: dayNames[d.getDay()],
-      month: monthNames[d.getMonth()],
-    });
+try {
+  const DB = Astro.locals.runtime.env.DB;
+
+  // Service price
+  const svc = await DB.prepare('SELECT price FROM services WHERE slug = ? AND active = 1').bind(service).first();
+  if (svc) servicePrice = svc.price;
+
+  // Availability
+  const rows = await DB.prepare('SELECT day_of_week, start_time, end_time FROM availability').all();
+  for (const r of rows.results || []) {
+    const [sh, sm] = r.start_time.split(':').map(Number);
+    const [eh, em] = r.end_time.split(':').map(Number);
+    let cur = sh * 60 + sm, end = eh * 60 + em;
+    while (cur + dur <= end) {
+      const h = Math.floor(cur / 60), m = cur % 60;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      slots.push({ dow: r.day_of_week, time: `${h12}:${String(m).padStart(2, '0')} ${ampm}` });
+      cur += dur + bufferMinutes;
+    }
   }
-  d.setDate(d.getDate() + 1);
-}
+  const availableDays = [...new Set(slots.map(s => s.dow))];
+
+  // Next 5 available dates
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dateList = [];
+  let d = new Date(today);
+  while (dateList.length < 5) {
+    if (availableDays.includes(d.getDay())) {
+      dateList.push({
+        iso: d.toISOString().split('T')[0],
+        day: d.getDate(), dow: d.getDay(),
+        dowName: dayNames[d.getDay()],
+        month: monthNames[d.getMonth()],
+      });
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  dateMap = { dates: dateList, slots };
+} catch (_) { /* DB unavailable during build */ }
 ---
 
 <BaseLayout title="Book a Session">
@@ -41,14 +72,14 @@ while (dates.length < 5) {
     <a href="/book/" class="back-link">&larr; Back</a>
 
     <p class="eyebrow">1-on-1 Session</p>
-    <h1 id="service-title"></h1>
-    <p id="service-meta"></p>
+    <h1>{serviceName}</h1>
+    <p class="service-meta">{dur} min &middot; &#8377;{servicePrice.toLocaleString('en-IN')}</p>
 
     <div class="field">
       <label>Pick a date</label>
       <div id="date-error" class="err">Select a date to continue.</div>
-      <div class="date-pills">
-        {dates.map(d => (
+      <div class="date-pills" id="date-pills">
+        {dateMap.dates?.map(d => (
           <button type="button" class="date-pill" data-date={d.iso} data-dow={d.dow}>
             <span class="date-pill-dow">{d.dowName}</span>
             <span class="date-pill-num">{d.day} {d.month}</span>
@@ -104,63 +135,30 @@ while (dates.length < 5) {
   <footer>
     <a href="https://akarshanarora.com">akarshanarora.com</a> &nbsp;&middot;&nbsp; <a href="/">Courses</a> &nbsp;&middot;&nbsp; <a href="/resources/">Guides</a>
   </footer>
-
-  <span id="sched" hidden data-schedule={JSON.stringify(schedule)} data-dur={availability.slotDuration} data-buffer={availability.bufferMinutes}></span>
 </BaseLayout>
 
 <style>
   .container { max-width: 480px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
   .eyebrow { font-family: 'JetBrains Mono',monospace; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.2em; color:var(--accent); margin-bottom:0.5rem; }
   h1 { font-size:2rem; font-weight:800; letter-spacing:-0.03em; margin-bottom:0.2rem; }
-  #service-meta { color:var(--muted); margin-bottom:2rem; }
+  .service-meta { color:var(--muted); margin-bottom:2rem; }
   .err { display:none; color:#9A3324; font-size:0.78rem; margin-bottom:0.5rem; margin-top:0.35rem; }
 
-  /* Date pills */
-  .date-pills {
-    display: flex; gap: 0.5rem; overflow-x: auto;
-    padding-bottom: 0.5rem;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
+  .date-pills { display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.5rem; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
   .date-pills::-webkit-scrollbar { display: none; }
-  .date-pill {
-    flex: 0 0 auto;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 0.55rem 0.9rem;
-    border: 1.5px solid var(--hairline);
-    border-radius: 12px;
-    background: var(--surface);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.15s;
-    min-width: 68px;
-  }
+  .date-pill { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; padding: 0.55rem 0.9rem; border: 1.5px solid var(--hairline); border-radius: 12px; background: var(--surface); cursor: pointer; font-family: inherit; transition: all 0.15s; min-width: 68px; }
   .date-pill:hover { border-color: var(--accent); background: #fdf8f5; }
   .date-pill.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .date-pill.full { opacity: 0.4; pointer-events: none; text-decoration: line-through; }
   .date-pill-dow { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: inherit; opacity: 0.7; }
   .date-pill.sel .date-pill-dow { opacity: 0.85; }
   .date-pill-num { font-size: 0.92rem; font-weight: 700; color: inherit; margin-top: 1px; }
 
-  /* Time slots — :global() so JS-created elements get styled */
   #time-slots { display: flex; flex-wrap: wrap; gap: 0.45rem; min-height: 2.5rem; align-items: center; }
-  :global(.slot) {
-    display: inline-block;
-    padding: 0.55rem 1.1rem;
-    border: 1.5px solid var(--hairline);
-    border-radius: 10px;
-    font-size: 0.88rem;
-    cursor: pointer;
-    background: var(--surface);
-    font-family: 'JetBrains Mono',monospace;
-    font-weight: 500;
-    transition: all 0.12s;
-  }
+  :global(.slot) { display: inline-block; padding: 0.55rem 1.1rem; border: 1.5px solid var(--hairline); border-radius: 10px; font-size: 0.88rem; cursor: pointer; background: var(--surface); font-family: 'JetBrains Mono',monospace; font-weight: 500; transition: all 0.12s; }
   :global(.slot:hover) { border-color: var(--accent); background: #fdf8f5; }
   :global(.slot.sel) { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
   :global(.no-slots) { color: var(--muted); font-size: 0.85rem; font-style: italic; }
 
-  /* Form fields */
   .field { margin-bottom: 1rem; }
   .field label { display:block; font-family:'JetBrains Mono',monospace; font-size:0.68rem; font-weight:500; color:#A3A39E; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.4rem; }
   .field input { width:100%; padding:0.7rem 0.85rem; background:var(--surface); border:1px solid var(--hairline); border-radius:8px; color:var(--ink); font-size:0.9rem; font-family:inherit; }
@@ -173,212 +171,74 @@ while (dates.length < 5) {
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
 (function(){
-  const sched = JSON.parse(document.getElementById('sched').dataset.schedule);
-  const defaultDur = parseInt(document.getElementById('sched').dataset.dur);
-  const buffer = parseInt(document.getElementById('sched').dataset.buffer) || 5;
+  const slotList = [{dateMap.slots?.map(s => JSON.stringify(s)).join(',') || ''}][0].split(',').filter(Boolean).map(s => { try { return JSON.parse(s) } catch { return null } }).filter(Boolean);
+  if (!slotList.length) { document.getElementById('time-slots').innerHTML = '<span class="no-slots">No time slots available.</span>'; return; }
+  const slotMap = {};
+  slotList.forEach(s => { if (!slotMap[s.dow]) slotMap[s.dow] = []; slotMap[s.dow].push(s.time); });
+
   let selDate = null, selTime = null;
+  const price = {servicePrice};
+  const svc = '{service}';
+  const svcName = '{serviceName}';
 
-  // URL params
-  const p = new URLSearchParams(location.search);
-  const service = p.get('s'), name = p.get('n');
-  const dur = parseInt(p.get('d')) || defaultDur;
-  const interval = dur + buffer;
-  if(!service||!name) return location.href='/book/';
+  document.getElementById('pay-btn').textContent = '₹' + price.toLocaleString('en-IN');
 
-  let originalPrice = 0;
-  let discountedPrice = 0;
-  let appliedCoupon = null;
-  let priceLoaded = false;
+  let originalPrice = price, discountedPrice = price, appliedCoupon = null;
 
-  // Fetch real price from server — URL param is fallback only
-  async function loadServicePrice() {
-    try {
-      const r = await fetch('/api/service?slug=' + encodeURIComponent(service));
-      if (r.ok) {
-        const svc = await r.json();
-        originalPrice = svc.price;
-        discountedPrice = svc.price;
-        priceLoaded = true;
-        updatePriceDisplay();
-      }
-    } catch (_) {}
-    // Fallback to URL param
-    if (!priceLoaded) {
-      originalPrice = parseInt(p.get('p')||'0');
-      discountedPrice = originalPrice;
-      if (originalPrice) { priceLoaded = true; updatePriceDisplay(); }
-    }
-  }
-
-  function updatePriceDisplay() {
-    document.getElementById('service-title').textContent = name;
-    document.getElementById('service-meta').textContent = dur + ' min';
+  function updatePayBtn() {
     const btn = document.getElementById('pay-btn');
-    if (!priceLoaded) {
-      btn.textContent = 'Loading...';
-    } else if (discountedPrice < originalPrice) {
-      btn.innerHTML = '₹' + discountedPrice + ' <s style="opacity:0.6; font-weight:400;">₹' + originalPrice + '</s>';
-    } else {
-      btn.textContent = '₹' + discountedPrice;
-    }
-  }
-  loadServicePrice().then(updatePriceDisplay);
-
-  // Coupon
-  let couponValidating = false;
-  const couponInput = document.getElementById('coupon');
-  const applyBtn = document.getElementById('apply-coupon');
-  const couponMsg = document.getElementById('coupon-msg');
-
-  function removeCoupon() {
-    discountedPrice = originalPrice;
-    appliedCoupon = null;
-    couponInput.value = '';
-    couponInput.disabled = false;
-    couponMsg.textContent = '';
-    applyBtn.textContent = 'Apply';
-    applyBtn.style.background = '';
-    applyBtn.onclick = applyCoupon;
-    updatePriceDisplay();
+    if (discountedPrice < originalPrice) btn.innerHTML = '₹' + discountedPrice + ' <s style="opacity:0.6;font-weight:400;">₹' + originalPrice.toLocaleString('en-IN') + '</s>';
+    else btn.textContent = '₹' + discountedPrice.toLocaleString('en-IN');
   }
 
-  async function applyCoupon() {
-    const code = couponInput.value.trim();
-    if (!code) { couponMsg.textContent = ''; return; }
-    if (couponValidating) return;
-    couponValidating = true;
-    couponMsg.style.color = 'var(--muted)';
-    couponMsg.textContent = 'Checking...';
-    try {
-      const r = await fetch('/api/validate-coupon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, service, price: originalPrice })
-      });
-      const data = await r.json();
-      if (data.valid) {
-        discountedPrice = data.discountedPrice;
-        appliedCoupon = code;
-        couponMsg.style.color = '#3A5A40';
-        couponMsg.textContent = data.discountPercent + '% off';
-        couponInput.disabled = true;
-        applyBtn.textContent = 'Remove';
-        applyBtn.style.background = '#9A3324';
-        applyBtn.onclick = removeCoupon;
-        updatePriceDisplay();
-      } else {
-        discountedPrice = originalPrice;
-        appliedCoupon = null;
-        couponMsg.style.color = '#9A3324';
-        couponMsg.textContent = data.error || 'Invalid coupon';
-        updatePriceDisplay();
-      }
-    } catch (_) {
-      couponMsg.style.color = '#9A3324';
-      couponMsg.textContent = 'Failed to check coupon.';
-    }
-    couponValidating = false;
-  }
-
-  applyBtn.onclick = applyCoupon;
-  couponInput.onkeydown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); applyBtn.click(); }
-  };
-
-  function scrollToSelected() {
-    const sel = document.querySelector('.date-pill.sel');
-    if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-  }
-
-  function timeLabel(mins) {
-    const h = Math.floor(mins / 60), m = mins % 60;
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
-    return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
-  }
-
-  async function loadSlots(date, dow) {
-    const c = document.getElementById('time-slots');
-    selTime = null;
-    document.getElementById('time-error').style.display = 'none';
-    c.innerHTML = '<span class="no-slots">Loading slots...</span>';
-
-    // Fetch booked slots first
-    let booked = [];
-    try {
-      const r = await fetch('/api/booked-slots?date=' + encodeURIComponent(date));
-      if (r.ok) { const d = await r.json(); booked = d.slots || []; }
-    } catch (_) {}
-
-    // Render only available slots
-    const ranges = sched[dow] || [];
-    let hasSlot = false;
-    c.innerHTML = '';
-
-    ranges.forEach(([s, e]) => {
-      const [sh, sm] = s.split(':').map(Number), [eh, em] = e.split(':').map(Number);
-      let cur = sh * 60 + sm, end = eh * 60 + em;
-      while (cur + dur <= end) {
-        const txt = timeLabel(cur);
-        if (!booked.includes(txt)) {
-          const el = document.createElement('span');
-          el.className = 'slot';
-          el.textContent = txt;
-          el.dataset.time = txt;
-          el.onclick = () => {
-            c.querySelectorAll('.slot').forEach(x => x.classList.remove('sel'));
-            el.classList.add('sel');
-            selTime = txt;
-            document.getElementById('time-error').style.display = 'none';
-          };
-          c.appendChild(el);
-          hasSlot = true;
-        }
-        cur += interval;
-      }
-    });
-
-    if (!hasSlot) {
-      c.innerHTML = '<span class="no-slots">All slots booked for this date. Pick another date.</span>';
-    }
-  }
-
-  // Pre-fetch availability for all dates — disable fully-booked ones
-  (async () => {
-    const pills = document.querySelectorAll('.date-pill');
-    const bookedByDate = {};
-    await Promise.all([...pills].map(async (btn) => {
-      try {
-        const r = await fetch('/api/booked-slots?date=' + encodeURIComponent(btn.dataset.date));
-        if (r.ok) { const d = await r.json(); bookedByDate[btn.dataset.date] = d.slots || []; }
-      } catch (_) { bookedByDate[btn.dataset.date] = []; }
-    }));
-    pills.forEach(btn => {
-      const dow = parseInt(btn.dataset.dow);
-      const ranges = sched[dow] || [];
-      let totalSlots = 0;
-      ranges.forEach(([s, e]) => {
-        const [sh, sm] = s.split(':').map(Number), [eh, em] = e.split(':').map(Number);
-        let cur = sh * 60 + sm, end = eh * 60 + em;
-        while (cur + dur <= end) { totalSlots++; cur += interval; }
-      });
-      const booked = bookedByDate[btn.dataset.date] || [];
-      if (booked.length >= totalSlots) btn.classList.add('full');
-    });
-  })();
-
-  // Date pill clicks
+  // Date click
   document.querySelectorAll('.date-pill').forEach(btn => {
     btn.onclick = () => {
-      if (btn.classList.contains('full')) return;
       document.querySelectorAll('.date-pill').forEach(d => d.classList.remove('sel'));
       btn.classList.add('sel');
       selDate = btn.dataset.date;
       document.getElementById('date-error').style.display = 'none';
-      loadSlots(selDate, parseInt(btn.dataset.dow));
-      scrollToSelected();
+      const c = document.getElementById('time-slots');
+      selTime = null; document.getElementById('time-error').style.display = 'none';
+      c.innerHTML = '';
+      const times = slotMap[parseInt(btn.dataset.dow)] || [];
+      if (!times.length) { c.innerHTML = '<span class="no-slots">No slots for this day.</span>'; return; }
+      // Fetch booked slots
+      fetch('/api/booked-slots?date=' + encodeURIComponent(selDate)).then(r => r.json()).then(d => {
+        const booked = new Set(d.slots || []);
+        let any = false;
+        times.forEach(t => {
+          if (booked.has(t)) return;
+          const el = document.createElement('span');
+          el.className = 'slot'; el.textContent = t; el.dataset.time = t;
+          el.onclick = () => { c.querySelectorAll('.slot').forEach(x => x.classList.remove('sel')); el.classList.add('sel'); selTime = t; document.getElementById('time-error').style.display = 'none'; };
+          c.appendChild(el); any = true;
+        });
+        if (!any) c.innerHTML = '<span class="no-slots">All slots booked. Pick another date.</span>';
+      }).catch(() => {});
     };
   });
+
+  // Coupon
+  document.getElementById('apply-coupon').onclick = async () => {
+    const code = document.getElementById('coupon').value.trim();
+    const msg = document.getElementById('coupon-msg');
+    if (!code) { msg.textContent = ''; return; }
+    msg.style.color = 'var(--muted)'; msg.textContent = 'Checking...';
+    try {
+      const r = await fetch('/api/validate-coupon', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, service: svc, price: originalPrice }) });
+      const data = await r.json();
+      if (data.valid) {
+        discountedPrice = data.discountedPrice; appliedCoupon = code;
+        msg.style.color = '#3A5A40'; msg.textContent = data.discountPercent + '% off';
+      } else {
+        discountedPrice = originalPrice; appliedCoupon = null;
+        msg.style.color = '#9A3324'; msg.textContent = data.error;
+      }
+      updatePayBtn();
+    } catch (_) { msg.textContent = 'Error checking coupon.'; }
+  };
+  document.getElementById('coupon').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('apply-coupon').click(); } };
 
   // Pay
   document.getElementById('pay-btn').onclick = async () => {
@@ -390,26 +250,26 @@ while (dates.length < 5) {
     const company = document.getElementById('company').value.trim();
     const answers = JSON.stringify({ about, experience, company });
     let ok = true;
-    if(!selDate){ document.getElementById('date-error').style.display = 'block'; ok = false; }
-    if(!selTime){ document.getElementById('time-error').style.display = 'block'; ok = false; }
-    if(!n || !e || !e.includes('@')){ alert('Enter name and valid email.'); ok = false; }
-    if(!about){ alert('Tell us what the call is about.'); ok = false; }
-    if(!experience){ alert('Enter your industry experience.'); ok = false; }
-    if(!company){ alert('Enter your current company.'); ok = false; }
+    if(!selDate){ document.getElementById('date-error').style.display='block'; ok=false; }
+    if(!selTime){ document.getElementById('time-error').style.display='block'; ok=false; }
+    if(!n || !e || !e.includes('@')){ alert('Enter name and valid email.'); ok=false; }
+    if(!about){ alert('Tell us what the call is about.'); ok=false; }
+    if(!experience){ alert('Enter your industry experience.'); ok=false; }
+    if(!company){ alert('Enter your current company.'); ok=false; }
     if(!ok) return;
     const btn = document.getElementById('pay-btn');
     btn.textContent = 'Processing...'; btn.disabled = true;
     try {
-      const r = await fetch('/api/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service, serviceName: name, price: discountedPrice, originalPrice, date: selDate, time: selTime, name: n, email: e, phone: ph, answersJson: answers, couponCode: appliedCoupon }) });
+      const r = await fetch('/api/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service: svc, serviceName: svcName, price: discountedPrice, originalPrice, date: selDate, time: selTime, name: n, email: e, phone: ph, answersJson: answers, couponCode: appliedCoupon }) });
       const data = await r.json();
       if (data.error) throw new Error(data.error);
       if (data.free) {
         location.href = '/book/confirmed/?orderId=' + data.orderId;
         return;
       }
-      new Razorpay({ key: 'rzp_test_SkCAElXSARTppL', amount: discountedPrice * 100, currency: 'INR', name, description: selDate + ' at ' + selTime, order_id: data.orderId, handler: (response) => { location.href = '/book/confirmed/?orderId=' + data.orderId + '&paymentId=' + response.razorpay_payment_id + '&signature=' + response.razorpay_signature; }, prefill: { name: n, email: e, contact: ph }, theme: { color: '#C45D2C' } }).open();
+      new Razorpay({ key: 'rzp_test_SkCAElXSARTppL', amount: discountedPrice * 100, currency: 'INR', name: svcName, description: selDate + ' at ' + selTime, order_id: data.orderId, handler: (resp) => { location.href = '/book/confirmed/?orderId=' + data.orderId + '&paymentId=' + resp.razorpay_payment_id + '&signature=' + resp.razorpay_signature; }, prefill: { name: n, email: e, contact: ph }, theme: { color: '#C45D2C' } }).open();
     } catch (_) { alert('Something went wrong. Try again.'); }
-    updatePriceDisplay(); btn.disabled = false;
+    updatePayBtn(); btn.disabled = false;
   };
 })();
 </script>
