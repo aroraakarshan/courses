@@ -1,12 +1,16 @@
 <script>
+  import { page } from '$app/state';
   let { children } = $props();
+  const isAdmin = $derived(page.url.pathname.startsWith('/admin'));
 </script>
 
 <svelte:head>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </svelte:head>
 
+{#if !isAdmin}
 <nav>
   <a href="https://akarshanarora.com" class="nav-brand">Akarshan Arora</a>
   <div class="nav-links">
@@ -15,12 +19,15 @@
     <a href="https://topmate.io/akarshanarora" target="_blank" rel="noopener" class="nav-cta">Book a 1:1</a>
   </div>
 </nav>
+{/if}
 
 {@render children()}
 
+{#if !isAdmin}
 <footer>
   <a href="https://akarshanarora.com">akarshanarora.com</a> · <a href="/">Courses</a> · <a href="/resources/">Guides</a>
 </footer>
+{/if}
 
 <style>
   :root {

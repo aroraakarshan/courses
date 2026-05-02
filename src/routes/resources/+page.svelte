@@ -15,7 +15,10 @@
 </section>
 
 <div class="grid">
-  {#each data.resources as r}
+  {#if data.resources.length === 0}
+    <div style="text-align:center;grid-column:1/-1;color:var(--muted);padding:2rem;font-style:italic;">No guides available right now.</div>
+  {:else}
+    {#each data.resources as r}
     <div class="card">
       <div class="card-body">
         <h2>{r.title}</h2>
@@ -25,8 +28,15 @@
         <a href="/resources/download?r={r.file}" style="color:inherit;text-decoration:none;"><span>Download →</span></a>
       </div>
     </div>
-  {/each}
+    {/each}
+  {/if}
 </div>
+
+<section class="support">
+  <h3>Support this work</h3>
+  <p>Creating resources takes time. If you find them valuable, consider contributing.</p>
+  <form><script src="https://checkout.razorpay.com/v1/payment-button.js" data-payment_button_id="pl_Sk52NHQhnivoGx" async></script></form>
+</section>
 
 <style>
   .hero { padding:5rem 2rem 3rem;text-align:center;max-width:660px;margin:0 auto; }
@@ -42,4 +52,7 @@
   .card-footer { padding:1.25rem 1.75rem 1.75rem;font-size:0.85rem;font-weight:600;color:var(--accent); }
   .card-footer span { display:inline-flex;align-items:center;gap:0.4rem;transition:gap 0.25s; }
   .card:hover .card-footer span { gap:0.8rem; }
+  .support { text-align:center;padding:4rem 2rem;border-top:1px solid var(--hairline); }
+  .support h3 { font-size:1.4rem;font-weight:700;letter-spacing:-0.03em;margin-bottom:0.5rem; }
+  .support p { color:var(--muted);margin-bottom:1.25rem; }
 </style>

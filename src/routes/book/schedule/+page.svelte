@@ -76,7 +76,10 @@
   onMount(() => { document.getElementById('coupon').onkeydown = e => { if (e.key==='Enter') { e.preventDefault(); applyCoupon(); } }; });
 </script>
 
-<svelte:head><title>Book — {data.svcName} — Akarshan Arora</title></svelte:head>
+<svelte:head>
+  <title>Book — {data.svcName} — Akarshan Arora</title>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</svelte:head>
 
 <div class="container">
   <a href="/book/" class="back-link">← Back</a>

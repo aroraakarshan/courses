@@ -35,6 +35,12 @@
   </a>
 </div>
 
+<section class="support">
+  <h3>Support this work</h3>
+  <p>Creating resources takes time. If you find them valuable, consider contributing.</p>
+  <form><script src="https://checkout.razorpay.com/v1/payment-button.js" data-payment_button_id="pl_Sk52NHQhnivoGx" async></script></form>
+</section>
+
 <style>
   .hero { padding:5rem 2rem 3rem;text-align:center;max-width:660px;margin:0 auto; }
   .hero-eyebrow { font-family:'JetBrains Mono',monospace;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.2em;color:var(--accent);margin-bottom:1rem; }
@@ -50,4 +56,7 @@
   .card-footer span { display:inline-flex;align-items:center;gap:0.4rem;transition:gap 0.25s; }
   .card:hover .card-footer span { gap:0.8rem; }
   .card-tag { display:inline-block;font-family:'JetBrains Mono',monospace;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent);margin-bottom:0.65rem; }
+  .support { text-align:center;padding:4rem 2rem;border-top:1px solid var(--hairline); }
+  .support h3 { font-size:1.4rem;font-weight:700;letter-spacing:-0.03em;margin-bottom:0.5rem; }
+  .support p { color:var(--muted);margin-bottom:1.25rem; }
 </style>
