@@ -1,10 +1,50 @@
 import { Hono } from 'hono';
-import { sendConfirmationEmail, notifyAdmin } from '$lib/email.js';
-import { safeJsonParse } from '$lib/utils.js';
-import { orderSchema, couponSchema, verifySchema, productSchema, availabilitySchema, adminCouponSchema, statusSchema, validate } from '$lib/schema.js';
+import { orderSchema, couponSchema, verifySchema, validate } from '$lib/schema.js';
+import { createOrder, verifyPayment } from '$lib/core/orders.js';
+import { listProducts, getProduct, listAvailability, getBookedSlots } from '$lib/core/products.js';
 
-const MEET_LINK = 'https://meet.google.com/axa-gbem-pgj';
 const api = new Hono();
+
+// ═══ Admin Auth ═══
+
+async function signToken(secret) {
+  const exp = String(Date.now() + 86400000); // 24h
+  const data = new TextEncoder().encode(exp);
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, data);
+  const hex = Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, '0')).join('');
+  return btoa(exp) + '.' + btoa(hex);
+}
+
+async function verifyToken(token, secret) {
+  try {
+    const [expB64, hexB64] = token.split('.');
+    const exp = atob(expB64), hex = atob(hexB64);
+    if (parseInt(exp) < Date.now()) return false;
+    const sig = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    return await crypto.subtle.verify('HMAC', key, sig, new TextEncoder().encode(exp));
+  } catch { return false; }
+}
+
+api.post('/admin/login', async (c) => {
+  const { password } = await c.req.json();
+  if (!c.env.ADMIN_PASSWORD || password !== c.env.ADMIN_PASSWORD) return c.json({ error: 'Invalid password' }, 401);
+  const token = await signToken(c.env.ADMIN_PASSWORD);
+  return new Response(JSON.stringify({ token }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Set-Cookie': 'admin_token=' + token + '; Path=/; Max-Age=86400; SameSite=Lax; HttpOnly' },
+  });
+});
+
+api.use('/admin/api/*', async (c, next) => {
+  const auth = c.req.header('Authorization') || '';
+  const cookieHeader = c.req.header('Cookie') || '';
+  const cookieToken = (cookieHeader.match(/admin_token=([^;]+)/) || [])[1];
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (cookieToken || '');
+  if (!token || !(await verifyToken(token, c.env.ADMIN_PASSWORD))) return c.json({ error: 'Unauthorized' }, 401);
+  return next();
+});
 
 function uid() { return crypto.randomUUID?.() || Date.now().toString(36)+Math.random().toString(36).slice(2); }
 function computeEndTime(time, mins) {
@@ -18,36 +58,10 @@ function computeEndTime(time, mins) {
 
 // ═══ Public APIs ═══
 
-api.get('/api/services', async (c) => {
-  const DB = c.env.DB;
-  if (!DB) return c.json([]);
-  const rows = await DB.prepare('SELECT slug, name, kind, price, duration_minutes, description FROM products WHERE active=1 ORDER BY kind, price').all();
-  return c.json(rows.results||[]);
-});
-
-api.get('/api/service', async (c) => {
-  const slug = c.req.query('slug');
-  const DB = c.env.DB;
-  if (!slug||!DB) return c.json({error:'Not found'},404);
-  const p = await DB.prepare('SELECT * FROM products WHERE slug=? AND active=1').bind(slug).first();
-  return p ? c.json(p) : c.json({error:'Not found'},404);
-});
-
-api.get('/api/availability', async (c) => {
-  const DB = c.env.DB;
-  if (!DB) return c.json([]);
-  const slug = c.req.query('product_slug')||null;
-  const rows = await DB.prepare('SELECT * FROM availability WHERE active=1 AND (product_slug=? OR product_slug IS NULL) ORDER BY day_of_week').bind(slug).all();
-  return c.json(rows.results||[]);
-});
-
-api.get('/api/booked-slots', async (c) => {
-  const date = c.req.query('date');
-  const DB = c.env.DB;
-  if (!date||!DB) return c.json({slots:[]});
-  const rows = await DB.prepare("SELECT time, end_time FROM contacts WHERE date=? AND status IN ('pending','confirmed') AND product_kind='call'").bind(date).all();
-  return c.json({slots:rows.results||[]});
-});
+api.get('/api/services', async (c) => c.json(await listProducts(c.env)));
+api.get('/api/service', async (c) => { const p = await getProduct(c.req.query('slug'), c.env); return p ? c.json(p) : c.json({error:'Not found'},404); });
+api.get('/api/availability', async (c) => c.json(await listAvailability(c.req.query('product_slug'), c.env)));
+api.get('/api/booked-slots', async (c) => c.json({slots: await getBookedSlots(c.req.query('date'), c.env)}));
 
 api.post('/api/validate-coupon', async (c) => {
   const { code, product_slug, price } = await c.req.json();
@@ -70,92 +84,10 @@ api.post('/api/create-order', async (c) => {
   const body = await c.req.json();
   const v = validate(orderSchema, body);
   if (!v.valid) return c.json({error:v.error},400);
-  const { product_slug, product_name, price, date, time, name, email, phone, couponCode, answersJson, fileServe } = v.data;
-  const env = c.env;
-  if (!env.DB) return c.json({error:'DB unavailable'},500);
-
-  const prod = await env.DB.prepare('SELECT * FROM products WHERE slug=? AND active=1').bind(product_slug).first();
-  if (!prod) return c.json({error:'invalid product'},400);
-
-  const now = new Date();
-  const dateStr = date||now.toISOString().split('T')[0];
-  const timeStr = time||now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const purchaseId = uid();
-  const answers = answersJson||'{}';
-  const dur = prod.duration_minutes||55;
-  const et = time ? computeEndTime(time, dur) : timeStr;
-
-  // RESOURCE
-  if (prod.kind==='resource') {
-    await env.DB.prepare(
-      'INSERT INTO contacts (purchase_id,product_slug,product_name,product_kind,date,time,end_time,duration_minutes,name,email,phone,price,answers_json,status,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).bind(purchaseId,prod.slug,prod.name,prod.kind,dateStr,timeStr,et,0,name,email,phone||'',0,answers,'downloaded','courses',Date.now()).run();
-
-    if (env.RESEND_API_KEY) {
-      import('$lib/email.js').then(m=>m.notifyAdmin(env,'download',{name,email,phone:phone||'',resource:prod.slug})).catch(()=>{});
-      fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:'Akarshan Arora <'+env.ADMIN_EMAIL+'>',to:[email],subject:'Your download: '+prod.name,html:'<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;"><h2>Thanks for downloading!</h2><p>Hi '+name+',</p><p><strong>'+prod.name+'</strong> should start automatically.</p><p style="color:#a3a39e;">— Akarshan Arora</p></div>'})}).catch(()=>{});
-    }
-
-    if (fileServe&&env.RESOURCES&&prod.file) {
-      const obj = await env.RESOURCES.get(prod.file);
-      if (obj) { const h=new Headers(); h.set('Content-Type',obj.httpMetadata?.contentType||'application/pdf'); obj.writeHttpMetadata(h); h.set('Content-Disposition','attachment; filename="'+prod.file+'"'); return new Response(obj.body,{status:200,headers:h}); }
-    }
-    return c.json({ok:true,purchaseId,kind:'resource'});
-  }
-
-  // CALL
-  if (!date||!time) return c.json({error:'date and time required for calls'},400);
-
-  const overlap = await env.DB.prepare("SELECT id FROM contacts WHERE date=? AND end_time>? AND time<? AND status IN ('pending','confirmed') AND product_kind='call' LIMIT 1").bind(date,time,et).first();
-  if (overlap) return c.json({error:'Time slot overlaps with existing booking'},409);
-
-  let actualPrice = prod.price;
-
-  // Pay-what-you-want: validate min_price
-  if (prod.pricing==='pwyw') {
-    if (price && price < prod.min_price) return c.json({error:'Minimum price is ₹'+prod.min_price},400);
-    if (price > 0) actualPrice = price; // user-chosen amount
-  }
-
-  // Auto discount from product
-  if (prod.discount_percent > 0) {
-    actualPrice = Math.round(actualPrice * (100 - prod.discount_percent) / 100);
-  }
-
-  // Coupon discount (stacks on top of auto discount)
-  if (couponCode) {
-    const cp = await env.DB.prepare("SELECT * FROM coupons WHERE code=? AND active=1 AND (max_uses=0 OR used<max_uses) AND (product_slug='' OR product_slug=?)").bind(couponCode.toUpperCase().trim(),prod.slug).first();
-    if (cp) { actualPrice=Math.round(actualPrice*(100-cp.discount_percent)/100); await env.DB.prepare("UPDATE coupons SET used=used+1 WHERE id=? AND active=1 AND (max_uses=0 OR used<max_uses)").bind(cp.id).run(); }
-  }
-
-  const bookingId = uid();
-
-  if (actualPrice===0) {
-    await env.DB.prepare("INSERT INTO contacts (purchase_id,booking_id,product_slug,product_name,product_kind,date,time,end_time,duration_minutes,name,email,phone,price,answers_json,coupon_code,status,source,created_at,meet_link,payment_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,'confirmed','courses',?,?,'free')").bind(purchaseId,bookingId,prod.slug,prod.name,prod.kind,date,time,et,dur,name,email,phone||'',answers,couponCode||'',Date.now(),prod.meet_link||MEET_LINK).run();
-    if (env.RESEND_API_KEY) {
-      const b={order_id:purchaseId,service_name:prod.name,name,email,phone:phone||'',date,time,price:0,answers_json:answers,coupon_code:couponCode||''};
-      try{await sendConfirmationEmail(b,prod.meet_link||MEET_LINK,env);const a=safeJsonParse(answers);await notifyAdmin(env,'booking',{service_name:prod.name,name,email,date,time,price:0,meet_link:prod.meet_link||MEET_LINK,coupon_code:couponCode||'',order_id:purchaseId,payment_id:'free',about:a.about||'',experience:a.experience||'',company:a.company||''});}catch{}
-    }
-    return c.json({free:true,purchaseId,bookingId,meetLink:prod.meet_link||MEET_LINK});
-  }
-
-  // Create Razorpay Payment Link — works in browser, curl, terminal, everywhere
-  const auth = btoa(env.RAZORPAY_KEY_ID+':'+env.RAZORPAY_KEY_SECRET);
-  const pl = await(await fetch('https://api.razorpay.com/v1/payment_links',{
-    method:'POST',headers:{Authorization:'Basic '+auth,'Content-Type':'application/json'},
-    body:JSON.stringify({
-      amount:actualPrice*100,currency:'INR',
-      description:prod.name+' on '+date+' at '+time,
-      customer:{name,email,contact:phone||undefined},
-      notes:{purchase_id:purchaseId,product_slug:prod.slug,date,time},
-      callback_url:c.req.url.replace('/api/create-order','')+'/book/confirmed?purchaseId='+purchaseId,
-      callback_method:'get'
-    })
-  })).json();
-  if (!pl.id) return c.json({error:'payment link creation failed'},500);
-
-  await env.DB.prepare("INSERT INTO contacts (purchase_id,booking_id,product_slug,product_name,product_kind,date,time,end_time,duration_minutes,name,email,phone,price,answers_json,coupon_code,payment_id,status,source,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','courses',?)").bind(purchaseId,bookingId,prod.slug,prod.name,prod.kind,date,time,et,dur,name,email,phone||'',actualPrice,answers,couponCode||'',pl.id,Date.now()).run();
-  return c.json({purchaseId,bookingId,paymentLink:pl.short_url,paymentLinkId:pl.id});
+  const result = await createOrder(v.data, c.env);
+  if (result.file) return new Response(result.file.body, {status:200, headers: result.file.headers});
+  if (result.error) return c.json({error:result.error}, result.status||500);
+  return c.json(result);
 });
 
 api.post('/api/verify-payment', async (c) => {
@@ -252,13 +184,13 @@ api.delete('/admin/api/product', async (c) => {
 
 api.get('/admin/api/availability', async (c) => {
   if (!c.env.DB) return c.json([]);
-  const rows = await c.env.DB.prepare('SELECT * FROM availability ORDER BY product_slug,day_of_week').all();
+  const rows = await c.env.DB.prepare('SELECT * FROM availability WHERE active=1 ORDER BY group_name,product_slug,day_of_week').all();
   return c.json(rows.results||[]);
 });
 
 api.post('/admin/api/availability', async (c) => {
-  const { product_slug, day_of_week, start_time, end_time } = await c.req.json();
-  await c.env.DB.prepare('INSERT OR REPLACE INTO availability (product_slug,day_of_week,start_time,end_time,active) VALUES (?,?,?,?,1)').bind(product_slug||null,day_of_week,start_time,end_time).run();
+  const { group_name, product_slug, day_of_week, start_time, end_time } = await c.req.json();
+  await c.env.DB.prepare('INSERT OR REPLACE INTO availability (group_name,product_slug,day_of_week,start_time,end_time,active) VALUES (?,?,?,?,?,1)').bind(group_name||'Default',product_slug||null,day_of_week,start_time,end_time).run();
   return c.json({ok:true});
 });
 
@@ -290,6 +222,19 @@ api.post('/admin/api/update-status', async (c) => {
   const { id, status } = await c.req.json();
   await c.env.DB.prepare('UPDATE contacts SET status=? WHERE id=?').bind(status,id).run();
   return c.json({ok:true});
+});
+
+api.post('/admin/api/refund', async (c) => {
+  const { id } = await c.req.json();
+  const contact = await c.env.DB.prepare('SELECT * FROM contacts WHERE id=?').bind(id).first();
+  if (!contact || !contact.payment_id || contact.payment_id === 'free') return c.json({error:'No payment to refund'},400);
+  const auth = btoa(c.env.RAZORPAY_KEY_ID+':'+c.env.RAZORPAY_KEY_SECRET);
+  const rzp = await(await fetch('https://api.razorpay.com/v1/payments/'+contact.payment_id+'/refund',{method:'POST',headers:{Authorization:'Basic '+auth,'Content-Type':'application/json'},body:JSON.stringify({})})).json();
+  if (rzp.id) {
+    await c.env.DB.prepare("UPDATE contacts SET status='refunded' WHERE id=?").bind(id).run();
+    return c.json({ok:true,refundId:rzp.id});
+  }
+  return c.json({error:rzp.error?.description||'Refund failed'},400);
 });
 
 export { api };
