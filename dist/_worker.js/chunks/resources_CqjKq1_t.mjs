@@ -1,0 +1,35 @@
+globalThis.process ??= {}; globalThis.process.env ??= {};
+const resources = [
+	{
+		file: "mastering-yaml-for-semiconductor.pdf",
+		title: "Mastering YAML for Semiconductor Engineers",
+		description: "Essential YAML patterns for VLSI workflows — configuration files, tool setups, and automation scripts with real examples."
+	},
+	{
+		file: "demystifyingfileformatsinvlsibackendanalysis.pdf",
+		title: "Demystifying File Formats in VLSI Backend Analysis",
+		description: "A practical guide to the file formats you encounter in EMIR, PDN, and physical design — LEF, DEF, SPEF, DSPF, and more."
+	},
+	{
+		file: "commonpythonpitfallsinvlsidesignandhowtofixthem.pdf",
+		title: "Common Python Pitfalls in VLSI Design",
+		description: "Real-world Python bugs that trip up VLSI engineers — and how to fix them. Covers path handling, Tcl interop, and more."
+	},
+	{
+		file: "crackvlsipythoninterview.pdf",
+		title: "Crack the VLSI Python Interview",
+		description: "The Python questions VLSI teams actually ask. Scripting scenarios, data structures, and problem-solving patterns."
+	},
+	{
+		file: "vlsiclicookbookreal-worldpythonclickrecipes.pdf",
+		title: "VLSI CLI Cookbook",
+		description: "Real-world Python Click recipes for VLSI tool automation — argument parsing, subcommands, file I/O, and pipeline integration."
+	},
+	{
+		file: "seeingthesiliconasimpleguidetovlsiplots.pdf",
+		title: "Seeing the Silicon: A Simple Guide to VLSI Plots",
+		description: "Learn to read and interpret the key plots in VLSI analysis — waveform, eye diagram, power profile, and more."
+	}
+];
+
+export { resources as r };

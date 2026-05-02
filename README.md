@@ -1,74 +1,42 @@
-# courses
+# sv
 
-Booking & payments for VLSI courses and career guidance sessions. Built with Astro + Cloudflare Workers (D1, R2).
+Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
 
-## Project structure
+## Creating a project
 
-```
-worker.js           — Cloudflare Worker (API routes, payment handling, email notifications)
-src/pages/          — Astro pages (booking flow, download page, resource listing)
-wrangler.jsonc      — Wrangler config (D1 binding, R2 bucket, assets)
-```
+If you're seeing this, you've probably already done this step. Congrats!
 
-## Services
-
-| Slug | Name | Price (INR) |
-|---|---|---|
-| `python-vlsi` | Python for VLSI | 799 |
-| `pdn-guidance` | PDN Guidance | 999 |
-| `redhawk-seascape` | RedHawk / SeaScape | 1,499 |
-| `career-guidance` | Career Guidance | 599 |
-
-## Coupon management
-
-Coupons are managed directly in the D1 database — there is no admin UI. All commands target the production database (`--remote`).
-
-### Add a coupon
-
-```bash
-# Universal (applies to all services)
-npx wrangler d1 execute courses-db --remote --command \
-  "INSERT INTO coupons (code, discount_percent, max_uses) VALUES ('WELCOME20', 20, 100);"
-
-# Service-specific
-npx wrangler d1 execute courses-db --remote --command \
-  "INSERT INTO coupons (code, discount_percent, max_uses, service) VALUES ('PDN50', 50, 10, 'pdn-guidance');"
+```sh
+# create a new project
+npx sv create my-app
 ```
 
-### View all coupons
+To recreate this project with the same configuration:
 
-```bash
-npx wrangler d1 execute courses-db --remote --command "SELECT * FROM coupons;"
+```sh
+# recreate this project
+npx sv@0.15.2 create --template minimal --types ts --install npm courses-sveltekit
 ```
 
-### Deactivate / reactivate
+## Developing
 
-```bash
-npx wrangler d1 execute courses-db --remote --command \
-  "UPDATE coupons SET active = 0 WHERE code = 'WELCOME20';"
+Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+
+```sh
+npm run dev
+
+# or start the server and open the app in a new browser tab
+npm run dev -- --open
 ```
 
-### Reset usage count
+## Building
 
-```bash
-npx wrangler d1 execute courses-db --remote --command \
-  "UPDATE coupons SET used = 0 WHERE code = 'WELCOME20';"
+To create a production version of your app:
+
+```sh
+npm run build
 ```
 
-### Coupon table schema
+You can preview the production build with `npm run preview`.
 
-| Column | Description |
-|---|---|
-| `code` | Unique coupon code (user-facing) |
-| `discount_percent` | Percentage off (e.g. 20 = 20%) |
-| `max_uses` | Max redemptions (`0` = unlimited) |
-| `used` | Auto-incremented on each successful order |
-| `active` | `1` = active, `0` = disabled |
-| `service` | `''` = all services, or a specific slug |
-
-### How coupons work
-
-1. User enters a code and clicks "Apply" on the booking page.
-2. `POST /api/validate-coupon` checks if the code is active, not exhausted, and valid for the selected service. Returns the discounted price.
-3. On payment, `POST /api/create-order` re-validates the coupon and atomically increments `used`. If the coupon is exhausted in the meantime, the order is rejected.
-4. The coupon code is stored in the `contacts` row for reporting.
+> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.

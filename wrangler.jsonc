@@ -1,9 +1,10 @@
 {
 	"compatibility_date": "2026-05-01",
+	"compatibility_flags": ["nodejs_compat"],
 	"name": "courses",
-	"main": "worker.js",
+	"main": ".svelte-kit/cloudflare/_worker.js",
 	"assets": {
-		"directory": "./dist",
+		"directory": ".svelte-kit/cloudflare",
 		"binding": "ASSETS"
 	},
 	"observability": {
